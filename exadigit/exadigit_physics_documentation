@@ -1,0 +1,1032 @@
+# ExaDigiT Data Center Digital Twin
+## Comprehensive Physics & Mathematical Formulation
+**Based on ORNL Frontier Supercomputer Cooling System**
+
+**Researcher:** yhkd
+**Date:** March 17, 2026
+**References:** LC-Opt (NeurIPS 2025) | ExaDigiT ORNL GitLab | HPE sustain-lc
+
+> **How to read source annotations:**
+> Each equation or insight is followed by a `> Source:` blockquote citing the exact file and the specific line of code that revealed it.
+
+---
+
+## Table of Contents
+
+1. System Overview
+2. Chip Thermal Model
+3. Cold Plate Model
+4. Cabinet Model
+5. CDU Model & Heat Exchanger Physics
+6. Cooling Block & Datacenter Assembly
+7. Hot Water Loop
+8. Cooling Tower Loop
+9. Cooling Tower Physics (York Correlation)
+10. Pump Train
+11. System Energy Summary
+12. ML Optimization Interface
+13. Global Model Assumptions
+
+---
+
+## 1. System Overview
+
+The ExaDigiT cooling model is a high-fidelity Modelica-based digital twin of the ORNL Frontier supercomputer liquid cooling system. It models the complete thermal chain from individual silicon chips to the atmosphere, enabling end-to-end simulation of energy consumption and thermal performance.
+
+### 1.1 Full Thermal Chain
+
+```
+CHIP (Silicon, 3D conduction)
+  ↓  chip heat conducted to cold plate surface
+COLD PLATE (SS316, conjugate heat transfer)
+  ↓  coolant carries heat from server
+CDU HEAT EXCHANGER (counter-flow, 5-node, empirical UA table)
+  ↓  building water carries heat from CDU
+HOT WATER LOOP (EHX, 4 pump trains, 4 HX trains)
+  ↓  inner loop water carries heat to cooling tower
+COOLING TOWER (York correlation, evaporative rejection)
+  ↓  heat rejected to atmosphere
+ATMOSPHERE (wet bulb temperature boundary condition)
+```
+
+> **Source:** Chain derived by tracing `connect()` statements across:
+> - `Models/v1.mo` — top-level assembly connecting datacenter to centralEnergyPlant
+> - `Systems/CentralEnergyPlant/Models/v0.mo` — connecting hotWaterLoop to coolingTowerLoop
+> - `Systems/Datacenter/Systems/CoolingBlock/Models/v0.mo` — connecting CDU to cabinet
+> - `Components/SubComponents/DataCenter/Blade/Blade_coldplates.mo` — connecting chip to cold plate
+
+### 1.2 Two Datacenter Zones
+
+The model supports two datacenter zones connected to one central energy plant:
+
+```modelica
+replaceable Systems.Datacenter.Models.v0 datacenter[structure.datacenter.n_int]
+replaceable Systems.Datacenter.Models.v0 datacenter_1[structure.datacenter_1.n_int]
+```
+
+> **Source:** `Models/v1.mo` — lines declaring `datacenter` and `datacenter_1` as separate array instances
+
+### 1.3 Plenum Mixing Volumes (Top Level)
+
+Two mixing volumes act as fluid manifolds connecting multiple datacenters to one central plant:
+
+```
+V_plenum_inlet  = 150 m³   (plenum_inlet_datacenter,  V=300/2)
+V_plenum_outlet = 150 m³   (plenum_outlet_datacenter, V=300/2)
+```
+
+> **Source:** `Models/v1.mo`:
+> ```modelica
+> TRANSFORM.Fluid.Volumes.MixingVolume plenum_outlet_datacenter(
+>   redeclare model Geometry = ... (V=300/2), ...
+> ```
+
+### 1.4 Two Fluid Media (Central Energy Plant)
+
+The system uses two hydraulically separate fluid circuits coupled only by heat exchange:
+
+```
+Medium (outer loop):       Datacenter ↔ Hot Water Loop primary side
+Medium_inner (inner loop): Hot Water Loop secondary side ↔ Cooling Tower Loop
+```
+
+```modelica
+replaceable package Medium_inner =
+    TRANSFORM.Media.Fluids.Water.LinearWaterHot_pT
+```
+
+> **Source:** `Systems/CentralEnergyPlant/Models/v0.mo` — `Medium_inner` declaration. The two media are never mixed — they exchange heat only through the EHX heat exchanger inside the Hot Water Loop.
+
+### 1.5 System Scale (Frontier Parameters)
+
+| Parameter | Value | Source File | Source Line |
+|-----------|-------|-------------|-------------|
+| Cooling Tower Units | 4 | `CoolingTowerLoop/Models/v0.mo` | `parameter Integer nCoolingTowers=4` |
+| CT cells total | 16 | `CoolingTowerLoop/Models/v0.mo` | `controls(nCTs=nCoolingTowers*4, ...)` |
+| CTWP pump trains | 4 | `CoolingTowerLoop/Models/v0.mo` | `parameter Integer nPumpTrains=4` |
+| HTWP pump trains | 4 | `HotWaterLoop/Models/v0.mo` | `parameter Integer nPumpTrains = 4` |
+| EHX trains | 4 | `HotWaterLoop/Models/v0.mo` | `parameter Integer nHeatExchangerTrains = 4` |
+| CT total flow | 500 kg/s | `CoolingTowerLoop/Models/v0.mo` | `port_a_nominal(... m_flow=500.0)` |
+| HWL total flow | 300 kg/s | `HotWaterLoop/Models/v0.mo` | `port_a1_nominal(... m_flow=300.0)` |
+
+---
+
+## 2. Chip Thermal Model
+**Files:** `Components/SubComponents/DataCenter/Blade/BaseClasses/chip_3D.mo`,
+`CPU_3D.mo`, `GPU_3D.mo`, `Blade_coldplates.mo`
+
+Both CPU and GPU use the same `chip_3D` base model. `CPU_3D` and `GPU_3D` each simply extend it:
+
+```modelica
+model CPU_3D
+  extends Icons.CPU;
+  extends chip_3D;
+```
+
+> **Source:** `CPU_3D.mo` — entire file. GPU_3D is identical with a different icon.
+
+### 2.1 Geometry Parameters
+
+| Parameter | Default Value | Source Line |
+|-----------|--------------|-------------|
+| nX, nY, nZ | 1, 1, 1 | `parameter Integer nX = 1 "No. of nodes in X"` |
+| length_x | 0.5 m | `parameter Real length_x = 0.5 "Dimension in X in m"` |
+| length_y | 0.2 m | `parameter Real length_y = 0.2 "Dimension in Y in m"` |
+| length_z | 0.1 m | `parameter Real length_z = 0.1 "Dimension in Z in m"` |
+| Material | Silicon | `redeclare package Material = ORNLSupercomputing.Components.SubComponents.Media.Silicon` |
+| T_amb | 298.15 K | `parameter Modelica.Units.SI.Temperature Tamb = 298.15` |
+| htc | 10 W/m²·K | `parameter Modelica.Units.SI.Temperature htc = 10.0 "Ambient HTC in W/m**2-K"` |
+
+> **Source:** All from `chip_3D.mo` parameter declarations at the top of the file.
+> Note: the `htc` parameter is mistyped as `SI.Temperature` in the original code but used as a heat transfer coefficient — a minor bug in the source.
+
+### 2.2 Governing Equations
+
+#### 3D Heat Conduction in Silicon
+
+The primary physics engine is `TRANSFORM.HeatAndMassTransfer.DiscritizedModels.Conduction_3D`, which solves the transient heat equation over a 3D grid of nX × nY × nZ nodes:
+
+```
+ρ · cp · ∂T/∂t = k · (∂²T/∂x² + ∂²T/∂y² + ∂²T/∂z²) + Q_gen
+```
+
+> **Source:** `chip_3D.mo`:
+> ```modelica
+> TRANSFORM.HeatAndMassTransfer.DiscritizedModels.Conduction_3D conduction(
+>   redeclare package Material = ORNLSupercomputing.Components.SubComponents.Media.Silicon,
+>   redeclare model Geometry =
+>       TRANSFORM.HeatAndMassTransfer.ClosureRelations.Geometry.Models.Plane_3D(
+>       nX=nX, nY=nY, nZ=nZ,
+>       length_x=length_x, length_y=length_y, length_z=length_z),
+>   redeclare model InternalHeatModel = ...GenericHeatGeneration)
+> ```
+> The `Conduction_3D` component from TRANSFORM implements the 3D heat equation. The specific PDE form is defined inside the TRANSFORM library.
+
+#### Convective Boundary Conditions (4 Exposed Side Faces)
+
+Newton's law of cooling is applied to all four side faces using `TRANSFORM.HeatAndMassTransfer.Resistances.Heat.Convection`:
+
+```
+Q_conv = α · A · (T_surface - T_amb)
+```
+
+> **Source:** `chip_3D.mo` — four convection arrays declared for each face:
+> ```modelica
+> TRANSFORM.HeatAndMassTransfer.Resistances.Heat.Convection convectionX1[nY,nZ](
+>     each alpha=htc, surfaceArea=conduction.geometry.crossAreas_1[1, :, :])
+> TRANSFORM.HeatAndMassTransfer.Resistances.Heat.Convection convectionY2[nX,nZ](
+>     each alpha=htc, surfaceArea=conduction.geometry.crossAreas_2[end, :, :])
+> TRANSFORM.HeatAndMassTransfer.Resistances.Heat.Convection convectionX2[nY,nZ](
+>     each alpha=htc, surfaceArea=conduction.geometry.crossAreas_1[end, :, :])
+> TRANSFORM.HeatAndMassTransfer.Resistances.Heat.Convection convectionY1[nY,nZ](
+>     each alpha=htc, surfaceArea=conduction.geometry.crossAreas_2[1, :, :])
+> ```
+> Each face connects to a fixed ambient temperature boundary `T_infX1`, `T_infX2`, `T_infY1`, `T_infY2` all set to `Tamb`.
+
+#### Heat Input and Cold Plate Output
+
+```modelica
+connect(port_a, conduction.port_a3)   -- heat power input (W) from workload
+connect(conduction.port_b3, port_b)   -- heat output to cold plate contact surface
+```
+
+> **Source:** `chip_3D.mo` equation section — the `port_a3` / `port_b3` connections in the `Conduction_3D` component represent the Z-direction faces (bottom and top of chip).
+
+### 2.3 Blade Architecture
+
+One blade (`Blade_coldplates.mo`) contains 2 GPUs and 2 CPUs in two parallel branches:
+
+```
+Branch 1: port_a → coldPlate(GPU) → coldPlate(CPU) → port_b
+Branch 2: port_a → coldPlate1(GPU) → coldPlate3(CPU) → port_b
+```
+
+GPU heat is absorbed first — coolant enters cold plate at GPU temperature, exits warmer, then enters CPU cold plate. GPU thermal load directly raises the coolant temperature seen by the CPU.
+
+> **Source:** `Blade_coldplates.mo` equation section:
+> ```modelica
+> connect(port_a, coldPlate.port_a)      -- Branch 1 GPU inlet
+> connect(coldPlate.port_b, coldPlate2.port_a)  -- GPU outlet feeds CPU inlet
+> connect(coldPlate2.port_b, port_b)     -- CPU outlet to blade exit
+> connect(port_a, coldPlate1.port_a)     -- Branch 2 GPU inlet
+> connect(coldPlate1.port_b, coldPlate3.port_a) -- GPU outlet feeds CPU inlet
+> connect(coldPlate3.port_b, port_b)     -- CPU outlet to blade exit
+> ```
+
+### 2.4 Assumptions
+
+- Default `nX=nY=nZ=1` gives a fully lumped chip — no spatial temperature gradients within the chip volume. Setting these >1 adds spatial resolution at the cost of simulation speed.
+- Silicon material properties (ρ, cp, k) are fixed constants from the ORNL Silicon media model.
+- Ambient blade air temperature is fixed at 25°C — the blade enclosure air is not dynamically modeled.
+- `htc = 10 W/m²·K` is constant — no forced convection correlation inside the blade enclosure.
+- Adiabatic boundary conditions at the inlet and outlet ends of the chip in Z direction are implied by the port connectivity pattern.
+
+---
+
+## 3. Cold Plate Model
+**File:** `Components/SubComponents/Fluid/ColdPlate/coldPlate.mo`
+
+The cold plate is the thermal interface between the chip and the liquid cooling circuit. It models conjugate heat transfer — simultaneous fluid flow and 2D solid wall conduction in stainless steel.
+
+### 3.1 Physical Configuration
+
+```
+Chip heat (heatPorts[nZ]) → SS316 wall (2D conduction) → fluid pipe (flow) → coolant out
+```
+
+### 3.2 Wall Material
+
+```modelica
+replaceable package Material = TRANSFORM.Media.Solids.SS316
+```
+
+> **Source:** `coldPlate.mo` — `Material` parameter declaration. SS316 stainless steel is the default wall material with known thermal conductivity, density, and specific heat.
+
+### 3.3 Governing Equations
+
+#### Fluid Energy Balance (at each node along pipe)
+
+```
+m · cp · dT/dt = m_flow · cp · (T_in - T_out) + Q_from_wall
+```
+
+> **Source:** `coldPlate.mo` — the fluid pipe is `TRANSFORM.Fluid.Pipes.GenericPipe_MultiTransferSurface`. This TRANSFORM component implements the 1D fluid energy balance at each node. The `use_HeatTransfer=true` flag enables wall-to-fluid heat transfer.
+> ```modelica
+> TRANSFORM.Fluid.Pipes.GenericPipe_MultiTransferSurface pipe(
+>     ...
+>     use_HeatTransfer=true,
+>     redeclare model HeatTransfer = HeatTransfer, ...)
+> ```
+
+#### 2D Wall Conduction (SS316)
+
+```
+ρ · cp · ∂T/∂t = k · (∂²T/∂r² + ∂²T/∂z²) + Q_gen
+```
+
+Where r is radial (wall thickness) and z is axial (along flow).
+
+> **Source:** `coldPlate.mo`:
+> ```modelica
+> TRANSFORM.HeatAndMassTransfer.DiscritizedModels.Conduction_2D wall(
+>   redeclare package Material = Material,
+>   redeclare model Geometry =
+>       TRANSFORM.Fluid.ClosureRelations.Geometry.Models.DistributedVolume_1D.ShellSide_STHX
+>       (r_outer=wall.geometry.r_inner + sum(geometry.ths_wall)/geometry.nV,
+>        length_z=sum(geometry.dlengths)), ...)
+> ```
+> `Conduction_2D` from TRANSFORM solves the 2D heat equation in cylindrical/shell coordinates.
+
+#### Conjugate Coupling (wall → fluid)
+
+```
+Q_wall→fluid = h · A · (T_wall_inner - T_fluid)
+```
+
+> **Source:** `coldPlate.mo` equation section:
+> ```modelica
+> connect(wall.port_a1, pipe.heatPorts[:,1])
+> ```
+> This connects the inner wall surface heat ports to the fluid pipe heat ports at each axial node, enabling convective coupling.
+
+#### Chip → Wall Connection
+
+```modelica
+connect(wall.port_b1, heatPorts)
+```
+
+> **Source:** `coldPlate.mo` equation section. `heatPorts[geometry.nZ]` is the external interface that receives chip heat from `GPU_3D.port_b` or `CPU_3D.port_b`.
+
+#### Adiabatic End Conditions
+
+```modelica
+TRANSFORM.HeatAndMassTransfer.BoundaryConditions.Heat.Adiabatic adiabatic_a[geometry.nR]
+TRANSFORM.HeatAndMassTransfer.BoundaryConditions.Heat.Adiabatic adiabatic_b[geometry.nR]
+```
+
+> **Source:** `coldPlate.mo` — inlet and outlet end faces of the wall are declared adiabatic. No heat escapes from the ends, only through the chip contact surface.
+
+### 3.4 GPU vs CPU Cold Plate Difference
+
+```modelica
+Fluid.ColdPlate.coldPlate coldPlate(use_HeatTransferOuter=true)   -- GPU
+Fluid.ColdPlate.coldPlate coldPlate2                               -- CPU (default false)
+```
+
+> **Source:** `Blade_coldplates.mo` — GPU cold plate instantiation passes `use_HeatTransferOuter=true`, meaning the outer wall temperature is explicitly solved. CPU cold plates use the default (false), meaning heat flux is prescribed instead.
+
+---
+
+## 4. Cabinet Model
+**File:** `Systems/Datacenter/Systems/CoolingBlock/Systems/Cabinet/Models/v0.mo`
+
+The cabinet model represents an entire server rack as a single lumped fluid volume. Individual blades are aggregated for computational efficiency.
+
+### 4.1 Physical Configuration
+
+```
+port_a → dp_inlet (R_Cab/2) → coolingChannels (fluid volume + heat port) → dp_outlet (R_Cab/2) → port_b
+                                        ↑
+                              boundary.Q_flow_ext
+                                        ↑
+                              controlBus.Q_flow  ← WORKLOAD HEAT INPUT
+```
+
+### 4.2 Key Parameters
+
+| Parameter | Value | Source Line |
+|-----------|-------|-------------|
+| R_Cab | 33,000 | `redeclare replaceable Data.v0 data(R_Cab=33000)` |
+| dp_inlet resistance | R_Cab × 0.5 | `dp_inlet(... R=data.R_Cab*0.5)` |
+| dp_outlet resistance | R_Cab × 0.5 | `dp_outlet(... R=data.R_Cab*0.5)` |
+| Fluid volume | data.ccVolCabinet | `coolingChannels(... V=data.ccVolCabinet)` |
+
+> **Source:** `Cabinet/Models/v0.mo` — component declarations and parameter assignments.
+
+### 4.3 Workload Heat Injection — Critical Line
+
+```modelica
+connect(controlBus.Q_flow, boundary.Q_flow_ext)
+```
+
+> **Source:** `Cabinet/Models/v0.mo` equation section. This single line is where compute workload data enters the physical model. `Q_flow` (watts) represents total electrical power dissipated as heat by all servers in the cabinet. To use real HPC job scheduler data, feed time-series power values into `controlBus.Q_flow`.
+
+### 4.4 Cabinet Energy Balance
+
+```
+m · cp · dT/dt = m_flow · cp · (T_in - T_out) + Q_flow
+```
+
+> **Source:** `Cabinet/Models/v0.mo`:
+> ```modelica
+> TRANSFORM.Fluid.Volumes.SimpleVolume coolingChannels(
+>     ...
+>     use_HeatPort=true)
+> TRANSFORM.HeatAndMassTransfer.BoundaryConditions.Heat.HeatFlow boundary(use_port=true)
+> connect(boundary.port, coolingChannels.heatPort)
+> connect(controlBus.Q_flow, boundary.Q_flow_ext)
+> ```
+> `SimpleVolume` with `use_HeatPort=true` implements the fluid energy balance. `HeatFlow` boundary injects Q_flow as an external heat source.
+
+---
+
+## 5. CDU Model & Heat Exchanger Physics
+**Files:** `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo`,
+`Components/SubComponents/Fluid/HeatExchangers/CDU_HEX.mo`,
+`Components/SubComponents/Fluid/HeatExchangers/BaseClasses/Simple_ITD_HX.mo`
+
+The CDU thermally decouples the server coolant loop from the building hot water loop. It is the most control-critical component on the datacenter side.
+
+### 5.1 Physical Configuration
+
+```
+Primary (building water):   port_a1 → dP_HTWS → valveCDU → HEX(primary) → dP_HTWR → port_b1
+Secondary (server coolant): port_a2 → dP_CTW1 → HEX(secondary) → tee → CDUP pump → port_b2
+                                                                         ↕
+                                                                   press_CDU (expansion tank)
+```
+
+> **Source:** `CDU/Models/v0.mo` — all `connect()` statements in the equation section trace this flow path.
+
+### 5.2 Nominal Operating Conditions
+
+| Port | Temperature | Pressure | Flow Rate | Source Line |
+|------|------------|----------|-----------|-------------|
+| Server coolant inlet (port_a1) | 40°C | 64.7 psi | 15 kg/s | `CDU_T_a_start_1 = from_degC(40.0)`, `CDU_m_flow_start1 = 15.0` |
+| Server coolant outlet (port_b1) | 30°C | 36.5 psi | — | `CDU_T_b_start_1 = from_degC(30.0)` |
+| Building water inlet (port_a2) | 22.5°C | 79.7 psi | 12 kg/s | `CDU_T_a_start_2 = from_degC(22.5)`, `CDU_m_flow_start2 = 12.0` |
+| Building water outlet (port_b2) | 35°C | 59.7 psi | — | `CDU_T_b_start_2 = from_degC(35.0)` |
+
+> **Source:** `CDU_HEX.mo` — all parameter declarations in the initialization section.
+
+### 5.3 Heat Transfer at Nominal Conditions (Derived)
+
+```
+Q_CDU = m_flow · cp · ΔT = 15 kg/s × 4184 J/kg·K × (40-30)°C ≈ 628 kW per CDU
+Q_total = 628 kW × 25 CDUs ≈ 15.7 MW total server heat load
+```
+
+> **Source:** Derived from `CDU_HEX.mo` nominal parameters. Not explicitly stated in code — calculated from `CDU_m_flow_start1 = 15.0` and `CDU_T_a_start_1`/`CDU_T_b_start_1`.
+
+### 5.4 Core Heat Exchanger Equation (Simple_ITD_HX)
+
+```
+Q_flow = UA · dT_ITD
+dT_ITD = T_inlet_side1 - T_inlet_side2    (Inlet Temperature Difference)
+```
+
+> **Source:** `Simple_ITD_HX.mo` — explicit equation in the `equation` section:
+> ```modelica
+> Q_flow = UA*dT_ITD;
+> dT_ITD = smooth(1, if abs(sensor_T_a1.T - sensor_T_a2.T) <= 1e-4
+>              then 0
+>              else (sensor_T_a1.T - sensor_T_a2.T))
+>              "Inlet Temperature Difference";
+> ```
+> The `smooth()` function prevents numerical discontinuities when the inlet temperatures are nearly equal.
+
+### 5.5 Discretization — 5 Nodes Per Side
+
+The HX is split into `nV=5` nodes. Heat is distributed equally:
+
+```
+Q_node = Q_flow / nV    (at each node, Q_total / 5 is exchanged)
+```
+
+> **Source:** `CDU_HEX.mo`:
+> ```modelica
+> BaseClasses.Simple_ITD_HX CDU_HEX(
+>     ...
+>     nV=5,
+>     counterCurrent=true, ...)
+> ```
+> And in `Simple_ITD_HX.mo`:
+> ```modelica
+> Modelica.Blocks.Sources.RealExpression boundary_1_input[nV](each y=-Q_flow/nV)
+> Modelica.Blocks.Sources.RealExpression boundary_2_input[nV](each y=Q_flow/nV)
+> ```
+
+### 5.6 Counter-Current Configuration
+
+The two fluid streams flow in opposite directions — maximizes heat transfer driving force:
+
+```
+Side 1 (hot):  port_a1 → → → → port_b1
+Side 2 (cold): port_b2 ← ← ← ← port_a2
+```
+
+> **Source:** `CDU_HEX.mo`:
+> ```modelica
+> BaseClasses.Simple_ITD_HX CDU_HEX(
+>     ...
+>     counterCurrent=true, ...)
+> ```
+
+### 5.7 UA Lookup Table (Empirical)
+
+The overall heat transfer coefficient-area product is NOT constant — it is interpolated from a 2D empirical table as a function of both fluid volumetric flow rates:
+
+```
+UA = UATable(Vol_flow_side1, Vol_flow_side2) × 1000 [W/kW conversion] × UA_corr_mod
+```
+
+UA values range from ~1.9 to ~73 kW/K over the operating range.
+
+> **Source:** `CDU_HEX.mo`:
+> ```modelica
+> Modelica.Blocks.Tables.CombiTable2Ds UATable(table=[0, 0.001261804, ...; ...])
+> Modelica.Blocks.Sources.RealExpression port_a1_volFlow(
+>     y=port_a1.m_flow / CDU_HEX.Medium_1.density_ph(port_b1.p, port_a1.h_outflow))
+> Modelica.Blocks.Sources.RealExpression port_a2_volFlow(
+>     y=port_a2.m_flow / CDU_HEX.Medium_2.density_ph(port_b2.p, port_a2.h_outflow))
+> ```
+> Volumetric flow rates for each side are computed from mass flow rate / density, then used as table inputs.
+
+### 5.8 UA Correction Factor
+
+```modelica
+UA=UATable.y*1e3*UA_corr_mod
+```
+
+```modelica
+redeclare replaceable Data.v0 data(UA_corr_mod=1.2)
+```
+
+> **Source:** `CDU_HEX.mo` — `CDU_HEX` instantiation connects UATable output with `UA_corr_mod` multiplier. `CDU/Models/v0.mo` sets `UA_corr_mod=1.2` — a 20% upward correction calibrated against real Frontier hardware measurements.
+
+### 5.9 Hydraulic Resistances
+
+```modelica
+parameter TRANSFORM.Units.HydraulicResistance R_Sec = 11000  "Sec. side hydraulic resistance"
+parameter TRANSFORM.Units.HydraulicResistance R_Pri = 8000   "Pri. side hydraulic resistance"
+```
+
+> **Source:** `CDU_HEX.mo` — parameter declarations. Secondary (server) side has higher resistance (11,000) reflecting tighter microchannel geometry. Primary (building water) side has lower resistance (8,000) reflecting larger pipe diameters.
+
+### 5.10 Fluid Volumes Inside HX
+
+```modelica
+constant Modelica.Units.SI.Volume V_1 = from_galUS(48.3-21.9)   -- side 1 fluid volume
+constant Modelica.Units.SI.Volume V_2 = from_galUS(48.3-21.9)   -- side 2 fluid volume
+```
+
+> **Source:** `Simple_ITD_HX.mo` — constants declared at top of model. Both sides have equal fluid volume derived from gallon measurements (48.3 - 21.9 = 26.4 US gallons per side ≈ 0.1 m³).
+
+### 5.11 CDU Control Signals
+
+| Signal | Direction | Source Line |
+|--------|-----------|-------------|
+| opening_CDUOut | Input → valveCDU.opening | `connect(controlBus.opening_CDUOut, valveCDU.opening)` |
+| CDUP_Nrel | Input → CDUP.inputSignal | `connect(controlBus.CDUP_Nrel, CDUP.inputSignal)` |
+| T_CabSup | Output from CabSup_pT.T | `connect(controlBus.T_CabSup, CabSup_pT.T)` |
+| T_CabRet | — | `connect(controlBus.p_CabRet, CabRet_pT.p)` |
+| W_flow_CDUP | Summary output | `W_flow_CDUP=CDUP.W*CDUP.nParallel` |
+
+> **Source:** `CDU/Models/v0.mo` — all `connect()` statements involving `controlBus`.
+
+### 5.12 Key Safety Constraint
+
+`T_CabSup` (server coolant supply temperature) is the primary safety constraint for ML optimization — servers overheat if this exceeds a threshold.
+
+> **Source:** `CDU/Models/v0.mo`:
+> ```modelica
+> connect(controlBus.T_CabSup, CabSup_pT.T)
+> ```
+> `CabSup_pT` measures coolant temperature at `port_b2` — the outlet going to server cabinets.
+
+---
+
+## 6. Cooling Block & Datacenter Assembly
+**Files:** `Systems/Datacenter/Systems/CoolingBlock/Models/v0.mo`,
+`Systems/Datacenter/Models/v0.mo`
+
+### 6.1 Cooling Block — Two-Loop Separation
+
+The CoolingBlock maintains hydraulic isolation between server coolant and building water, exactly mirroring the Hot Water Loop structure:
+
+```
+port_a (building water) → CDU[primary] → port_b
+CDU[secondary] ↔ Cabinet (server coolant loop — closed, internal)
+```
+
+> **Source:** `CoolingBlock/Models/v0.mo`:
+> ```modelica
+> connect(cdu.port_b2, plenum_inlet_cabinet.port_a)
+> connect(plenum_outlet_cabinet.port_b, cdu.port_a2)
+> ```
+> CDU secondary outlet feeds cabinet inlet; cabinet outlet returns to CDU secondary inlet — forming a closed server-side loop.
+
+### 6.2 Bypass Valve — Datacenter Level
+
+A bypass valve allows coolant to short-circuit the compute blocks when server load is low:
+
+```modelica
+TRANSFORM.Fluid.Valves.ValveLinear valveBypass(
+    dp_nominal(displayUnit="Pa") = data.dP_valve_bypass,
+    m_flow_nominal=data.bypass_nom_flow)
+TRANSFORM.Fluid.FittingsAndResistances.PressureLoss bypassPipe(
+    ... dp0=data.dP_bypass)
+connect(controlBus.opening_bypass, valveBypass.opening)
+```
+
+> **Source:** `Datacenter/Models/v0.mo` — component declarations and control bus connection. Opening the bypass reduces pump back-pressure and saves energy during low-load periods.
+
+### 6.3 Mass Flow Sensor
+
+```modelica
+TRANSFORM.Fluid.Sensors.MassFlowRate sensor_m_flow
+connect(controlBus.m_flow_supply, sensor_m_flow.m_flow)
+```
+
+> **Source:** `Datacenter/Models/v0.mo` — total supply flow is measured and broadcast to the control bus for use by higher-level controllers.
+
+---
+
+## 7. Hot Water Loop
+**File:** `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo`
+
+The Hot Water Loop is the central heat exchange system coupling server waste heat to the cooling tower loop. It has 4 pump trains and 4 heat exchanger trains, all stageable.
+
+### 7.1 Nominal Operating Conditions
+
+| Port | Temperature | Pressure | Flow Rate | Source Line |
+|------|------------|----------|-----------|-------------|
+| Hot Water Return (port_a1) | 29°C (302.15 K) | 3.837 bar | 300 kg/s | `port_a1_nominal(p=3.837e5, T=302.15, m_flow=300.0)` |
+| Hot Water Supply (port_b1) | 21°C (294.15 K) | 5.495 bar | — | `port_b1_nominal(p=5.4951e5, T=294.15)` |
+| Cooling Tower In (port_a2) | 20°C (293.15 K) | 2.9 bar | 500 kg/s | `port_a2_nominal(p=2.9e5, T=293.15, m_flow=500.0)` |
+| Cooling Tower Out (port_b2) | 24.8°C (297.95 K) | 2.6 bar | — | `port_b2_nominal(p=2.6e5, T=297.95)` |
+
+> **Source:** `HotWaterLoop/Models/v0.mo` — `port_*_nominal` parameter overrides in the `extends` clause.
+
+### 7.2 Pump Train Affinity Laws
+
+Each HTWP pump train is a `PumpTrain` instance with speed control input `Nrel_HTWP`:
+
+```
+Q_flow ∝ N       (flow proportional to speed)
+ΔP     ∝ N²      (pressure head proportional to speed squared)
+W_pump ∝ N³      (power proportional to speed cubed)
+W_pump = m_flow · ΔP / η
+```
+
+Total flow: 300 kg/s across 4 pumps = 75 kg/s per pump.
+
+> **Source:** `HotWaterLoop/Models/v0.mo`:
+> ```modelica
+> connect(controlBus.Nrel_HTWP, pumpTrain.N)
+> ```
+> The affinity laws are implemented inside `TRANSFORM.Fluid.Machines.Pump_Controlled` within `PumpTrain.mo`.
+
+### 7.3 EHX Valve Control
+
+Two independently controlled valves per EHX train:
+
+```modelica
+connect(controlBus.valveEHX, valveEHX1a.opening)   -- primary (hot water) side
+connect(controlBus.valveEHXb, valveEHX1b.opening)  -- secondary (CT water) side
+```
+
+> **Source:** `HotWaterLoop/Models/v0.mo` — control bus connections to `valveEHX1a` and `valveEHX1b` arrays.
+
+### 7.4 Expansion Tank
+
+```modelica
+TRANSFORM.Fluid.Volumes.ExpansionTank_1Port press_HTWP(
+    A=Modelica.Constants.pi*0.75^2,   -- radius 0.75 m
+    V0=10,                             -- base volume 10 m³
+    ...)
+```
+
+> **Source:** `HotWaterLoop/Models/v0.mo` — expansion tank maintains system pressure in the primary loop. Radius = 0.75 m, base volume = 10 m³.
+
+### 7.5 Energy Tracking
+
+```modelica
+summary(
+    W_flow_HTWP=sum(pumpTrain[:].pump.W),  -- total pump power
+    N_HTWP=controls.HTWP_speed.HTWP_Nrel, -- pump speed signal
+    n_HTWPs=controls.HTWP_Staging.nPUMP,  -- number of active pumps
+    n_EHXs=controls.EHX_Staging.nEHX)     -- number of active EHXs
+```
+
+> **Source:** `HotWaterLoop/Models/v0.mo` — `summary(...)` block in the `extends` clause.
+
+---
+
+## 8. Cooling Tower Loop
+**File:** `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo`
+
+The cooling tower loop is where the majority of energy optimization opportunity exists. CT fans and CT pumps are the dominant energy consumers.
+
+### 8.1 Nominal Operating Conditions
+
+| Port | Temperature | Pressure | Flow Rate | Source Line |
+|------|------------|----------|-----------|-------------|
+| CT Return (port_a) | 24.8°C (297.95 K) | 2.6 bar | 500 kg/s | `port_a_nominal(p=2.6e5, T=297.95, m_flow=500.0)` |
+| CT Supply (port_b) | 20°C (293.15 K) | 2.9 bar | — | `port_b_nominal(p=2.9e5, T=293.15)` |
+
+> **Source:** `CoolingTowerLoop/Models/v0.mo` — `port_*_nominal` overrides in the `extends` clause.
+
+### 8.2 Wet Bulb Temperature Input Path
+
+Wet bulb temperature is broadcast to all 4 cooling towers via a signal replicator:
+
+```modelica
+Modelica.Blocks.Routing.Replicator replicator(nout=nCoolingTowers)
+connect(controlBus.Towb, replicator.u)
+connect(replicator.y, coolingTower.Towb)
+```
+
+> **Source:** `CoolingTowerLoop/Models/v0.mo` — `replicator` component and connections. A single `Towb` scalar from the control bus is replicated to all 4 towers simultaneously — all towers see identical ambient conditions.
+
+### 8.3 Energy Tracking Variables
+
+```modelica
+summary(
+    W_flow_CTWP=sum(pumpTrain[:].pump.W),      -- CT pump power
+    W_flow_CT=sum(coolingTower.cell[:].CT.PFan), -- CT fan power
+    Q_flow_CT=-1*sum(coolingTower.cell[:].CT.Q_flow), -- heat rejected
+    n_CTWPs=controls.CTWP_Staging.nPUMP,       -- active pumps
+    n_CTs=controls.CT_Staging.nCT)             -- active CT cells
+```
+
+> **Source:** `CoolingTowerLoop/Models/v0.mo` — `summary(...)` block. The `-1` multiplier on `Q_flow_CT` converts the sign convention (heat rejected from water is negative in Modelica convention) to a positive quantity.
+
+### 8.4 Basin Reservoir
+
+```modelica
+TRANSFORM.Fluid.Volumes.ExpansionTank_1Port basin_reservoir(
+    A=Modelica.Constants.pi*1.0^2,   -- radius 1.0 m
+    V0=20.0,                          -- base volume 20 m³
+    ...) "Basin reservoir at Atmospheric pressure"
+```
+
+> **Source:** `CoolingTowerLoop/Models/v0.mo` — the basin represents the open cooling tower water basin at atmospheric pressure. Radius = 1.0 m, volume = 20 m³.
+
+---
+
+## 9. Cooling Tower Physics (York Correlation)
+**File:** `Components/SubComponents/Fluid/CoolingTowers/BaseClasses/YorkCalc.mo`
+
+The cooling tower implements the York calculation — an empirical polynomial correlation for approach temperature from York manufacturer data, adopted by EnergyPlus.
+
+### 9.1 Fundamental Thermodynamic Constraint
+
+The leaving water temperature cannot go below ambient wet bulb temperature:
+
+```
+T_leaving_water = T_wetbulb + T_approach
+T_approach ≥ 0   (always — physical lower bound)
+```
+
+> **Source:** `YorkCalc.mo` documentation string:
+> *"To compute the thermal performance, this model takes as parameters the approach temperature, the range temperature and the inlet air wet bulb temperature at the design condition."*
+> And the heat flow calculation:
+> ```modelica
+> Modelica.Blocks.Sources.RealExpression QWat_flow(y=m_flow*(
+>     Medium.specificEnthalpy(
+>         Medium.setState_pTX(p=port_b.p, T=TAir + TAppAct, ...))
+>         - inStream(port_a.h_outflow)))
+> ```
+> The outlet enthalpy is computed at temperature `TAir + TAppAct` — wet bulb plus approach.
+
+### 9.2 Range and Flow Ratios
+
+```
+TRan = T_inlet - T_outlet     (water temperature drop across tower)
+FRWat = m_flow / m_flow_nominal
+FRAir = y                     (fan speed = air flow ratio)
+```
+
+> **Source:** `YorkCalc.mo`:
+> ```modelica
+> Modelica.Units.SI.TemperatureDifference TRan(displayUnit="K") = T_a - T_b
+>     "Range temperature";
+> Modelica.Units.SI.MassFraction FRWat=m_flow/mWat_flow_nominal
+>     "Ratio actual over design water mass flow ratio";
+> Modelica.Units.SI.MassFraction FRAir=y
+>     "Ratio actual over design air mass flow ratio";
+> ```
+
+### 9.3 Approach Temperature — Forced Convection
+
+```
+TAppCor = yorkCalc(TRan, TWetBul, FRWat, FRAir)
+```
+
+> **Source:** `YorkCalc.mo`:
+> ```modelica
+> Modelica.Units.SI.TemperatureDifference TAppCor(min=0, displayUnit="K") =
+>     Buildings.Fluid.HeatExchangers.CoolingTowers.Correlations.yorkCalc(
+>     TRan=TRan,
+>     TWetBul=TAir,
+>     FRWat=FRWat,
+>     FRAir=Buildings.Utilities.Math.Functions.smoothMax(
+>         x1=FRWat/bou.liqGasRat_max, x2=FRAir, deltaX=0.01))
+>     "Approach temperature for forced convection";
+> ```
+> `smoothMax` ensures FRAir stays above the liquid-to-gas ratio bound for numerical stability.
+
+### 9.4 Approach Temperature — Free Convection
+
+```
+TAppFreCon = (1 - fraFreCon) · dTMax + fraFreCon · yorkCalc(TRan, TWetBul, FRWat, FRAir=1)
+dTMax = T_inlet - T_wetbulb
+```
+
+> **Source:** `YorkCalc.mo`:
+> ```modelica
+> Modelica.Units.SI.TemperatureDifference TAppFreCon(min=0, displayUnit="K") =
+>     (1 - fraFreCon)*dTMax + fraFreCon*
+>     Buildings.Fluid.HeatExchangers.CoolingTowers.Correlations.yorkCalc(
+>     TRan=TRan, TWetBul=TAir, FRWat=FRWat, FRAir=1)
+>     "Approach temperature for free convection";
+> ```
+> `FRAir=1` because in free convection, the airflow is at the minimum (natural draft), treated as design airflow for the correlation.
+
+### 9.5 Smooth Transition Between Modes
+
+```
+TAppAct = spliceFunction(TAppCor, TAppFreCon, y - yMin, deltax=yMin/20)
+```
+
+> **Source:** `YorkCalc.mo`:
+> ```modelica
+> Modelica.Units.SI.TemperatureDifference TAppAct(displayUnit="K") =
+>     Buildings.Utilities.Math.Functions.spliceFunction(
+>     pos=TAppCor,
+>     neg=TAppFreCon,
+>     x=y - yMin + yMin/20,
+>     deltax=yMin/20) "Approach temperature difference";
+> ```
+> Smooth splice prevents numerical discontinuity in the ODE solver at the forced/free convection transition.
+
+### 9.6 Fan Power — Cubic Law
+
+In forced convection mode:
+
+```
+P_fan = fanRelPow(y) · P_fan_nominal
+fanRelPow(y) = y³    (default cubic law)
+```
+
+In free convection mode: `P_fan = 0`
+
+> **Source:** `YorkCalc.mo` documentation:
+> *"In the forced convection mode, the actual fan power is computed as PFan=fanRelPow(y) * PFan_nominal, where the default value for the fan relative power consumption at part load is fanRelPow(y)=y³."*
+> The cubic spline derivatives for the fan curve are computed in the initial equation:
+> ```modelica
+> fanRelPowDer = Buildings.Utilities.Math.Functions.splineDerivatives(
+>     x=fanRelPow.r_V, y=fanRelPow.r_P, ...);
+> ```
+
+### 9.7 Heat Rejected
+
+```
+Q = m_flow · (h_outlet - h_inlet)
+  = m_flow · cp · (T_outlet - T_inlet)
+h = cp · (T - T₀)    where cp = 4184 J/kg·K, T₀ = 273.15 K
+```
+
+> **Source:** `YorkCalc.mo`:
+> ```modelica
+> Modelica.Blocks.Sources.RealExpression QWat_flow(y=m_flow*(
+>     Medium.specificEnthalpy(
+>         Medium.setState_pTX(p=port_b.p, T=TAir + TAppAct, X=...))
+>         - inStream(port_a.h_outflow)))
+> ```
+> And from documentation: *"h = cp(T - T₀), where cp = 4184 J/(kg K), T is temperature in Kelvin and T₀ = 273.15 Kelvin."*
+
+### 9.8 Design Point Parameters
+
+| Parameter | Value | Source Line |
+|-----------|-------|-------------|
+| TApp_nominal | 3.89 K | `parameter ... TApp_nominal(displayUnit="K") = 3.89` |
+| TRan_nominal | 5.56 K | `parameter ... TRan_nominal(displayUnit="K") = 5.56` |
+| CT_mflow_nom | 3992×0.063×0.25 kg/s | `coolingTower_Towb.mo: parameter ... CT_mflow_nom = 3992*0.063*0.25` |
+| CT_fan_power_nom | 0.25×149,140 W | `coolingTower_Towb.mo: parameter ... CT_fan_power_nom = 0.25*149140` |
+
+> **Source:** `YorkCalc.mo` parameter declarations and `coolingTower_Towb.mo` component instantiation parameters.
+
+### 9.9 Initial Equations (Design Point Solver)
+
+```modelica
+TWatOut_nominal = TAirInWB_nominal + TApp_nominal;
+TRan_nominal = TWatIn_nominal - TWatOut_nominal;
+TApp_nominal = yorkCalc(TRan=TRan_nominal, TWetBul=TAirInWB_nominal,
+                        FRWat=FRWat0, FRAir=1);   -- solved for FRWat0
+mWat_flow_nominal = m_flow_nominal / FRWat0;
+```
+
+> **Source:** `YorkCalc.mo` — `initial equation` section. These three equations are solved simultaneously at initialization to find the nominal water flow ratio `FRWat0` and nominal mass flow rate `mWat_flow_nominal` from the specified design point temperatures.
+
+### 9.10 Assumptions and Limitations
+
+- York polynomial valid only within bounds defined by `BoundsYorkCalc` — no extrapolation guarantee outside these.
+- No basin heater power — cold weather not modeled.
+- No make-up water tracking — evaporative loss not accounted for.
+- No individual cell switching logic inside this model — handled externally by staging controller.
+- Linear enthalpy: `h = cp·(T-T₀)` with constant cp = 4184 J/kg·K — from `Buildings.Media.Water`.
+- Steady-state York correlation applied at each timestep — tower transient dynamics not captured.
+
+> **Source:** `YorkCalc.mo` documentation section under *"Assumptions and limitations"* and *"Comparison with EnergyPlus"*.
+
+---
+
+## 10. Pump Train
+**File:** `Components/SubComponents/Fluid/Pumps/PumpTrain.mo`
+
+### 10.1 Physical Configuration
+
+```
+port_a → valve (opening) → volume (V=0.01 m³) → pump (N=speed signal) → port_b
+```
+
+> **Source:** `PumpTrain.mo` — `connect()` statements:
+> ```modelica
+> connect(valve.port_b, volume.port_a)
+> connect(volume.port_b, pump.port_a)
+> connect(valve.port_a, port_a)
+> connect(pump.port_b, port_b)
+> ```
+
+### 10.2 Buffer Volume
+
+```modelica
+TRANSFORM.Fluid.Volumes.SimpleVolume volume(
+    ...
+    redeclare replaceable model Geometry = ...GenericVolume(V=0.01))
+```
+
+> **Source:** `PumpTrain.mo` — volume declaration. V=0.01 m³ provides numerical stability between the valve and pump — represents real pipe volume.
+
+### 10.3 Control Inputs
+
+```modelica
+Modelica.Blocks.Interfaces.RealInput opening  "=1: completely open, =0: completely closed"
+Modelica.Blocks.Interfaces.RealInput N
+connect(valve.opening, opening)
+connect(pump.inputSignal, N)
+```
+
+> **Source:** `PumpTrain.mo` — interface declarations and connect statements.
+
+### 10.4 Pump Affinity Laws
+
+The controlled pump (`TRANSFORM.Fluid.Machines.Pump_Controlled`) implements the centrifugal pump affinity laws:
+
+```
+Q_flow ∝ N       (flow proportional to speed)
+ΔP     ∝ N²      (head proportional to speed squared)
+W_pump ∝ N³      (power proportional to speed cubed)
+W_pump = m_flow · ΔP / η
+```
+
+> **Source:** Affinity laws are implemented inside `TRANSFORM.Fluid.Machines.Pump_Controlled` (TRANSFORM library, not in ExaDigiT repo directly). The pump is instantiated in `PumpTrain.mo`:
+> ```modelica
+> TRANSFORM.Fluid.Machines.Pump_Controlled pump(
+>     ...
+>     use_port=true)
+> ```
+> Speed input N drives the pump characteristic. The cubic power law is a standard result from dimensional analysis of centrifugal machines.
+
+### 10.5 Isolation Valve Flow Equation
+
+```
+m_flow = opening · m_flow_nominal · √(ΔP / ΔP_nominal)
+```
+
+> **Source:** `PumpTrain.mo`:
+> ```modelica
+> TRANSFORM.Fluid.Valves.ValveLinear valve(
+>     dp_start=500,
+>     dp_nominal=1000,
+>     m_flow_nominal=port_a_nominal.m_flow)
+> ```
+> `ValveLinear` from TRANSFORM implements the linear valve equation. Flow is proportional to opening and square root of pressure drop ratio.
+
+---
+
+## 11. System Energy Summary
+
+### 11.1 Energy Components and Sources
+
+| Component | Power Variable | Count | Governing Law | Source |
+|-----------|---------------|-------|---------------|--------|
+| CT fans | `sum(coolingTower.cell[:].CT.PFan)` | 16 cells | P ∝ y³ | `CoolingTowerLoop/Models/v0.mo` summary block |
+| CT pumps | `sum(pumpTrain[:].pump.W)` | 4 trains | P ∝ N³ | `CoolingTowerLoop/Models/v0.mo` summary block |
+| HWL pumps | `sum(pumpTrain[:].pump.W)` | 4 trains | P ∝ N³ | `HotWaterLoop/Models/v0.mo` summary block |
+| CDU pumps | `CDUP.W*CDUP.nParallel` | 25 CDUs | P ∝ N³ | `CDU/Models/v0.mo` summary block |
+
+### 11.2 Optimization Objective
+
+```
+Minimize:  E_total = W_CT_fans + W_CTWP + W_HTWP + W_CDUP
+
+Subject to:
+  T_CabSup ≤ T_max_server         (server safety — from CDU/Models/v0.mo controlBus.T_CabSup)
+  Q_flow_CT ≥ Q_server_load       (heat rejection must meet server demand)
+  T_leaving_CT ≥ T_wetbulb        (thermodynamic limit — from YorkCalc.mo)
+```
+
+---
+
+## 12. ML Optimization Interface
+
+The following control signals form the action space for ML-based controllers. Rule-based controllers currently occupy each — the ML layer replaces them.
+
+### 12.1 Cooling Tower Level (CT MDP — from LC-Opt paper)
+
+| Signal | Type | Current Controller | ML Action | Source |
+|--------|------|--------------------|-----------|--------|
+| Tset_CT | Continuous | `CS_PumpAndStagingControl` | δ per tower | `CoolingTowerLoop/Models/v0.mo`: `connect(controlBus.Tset_CT, coolingTower.waterSPTLvg)` |
+| valve_CT | Discrete | CT_Staging | Cell on/off | `connect(controlBus.valve_CT, coolingTower.opening)` |
+| Nrel_CTWP | Continuous | CTWP_speed | Speed setpoint | `connect(controlBus.Nrel_CTWP, pumpTrain.N)` |
+| valve_CTWP | Discrete | CTWP_Staging | Pump on/off | `connect(controlBus.valve_CTWP, pumpTrain.opening)` |
+
+**Reward:** `-sum(W_CT_fans + W_CTWP)`
+
+> **Source:** `CoolingTowerLoop/Models/v0.mo` — all control bus connections. CT MDP formulation from LC-Opt paper Table 1.
+
+### 12.2 CDU/Blade Level (Blade Group MDP — from LC-Opt paper)
+
+| Signal | Type | Current Controller | ML Action | Source |
+|--------|------|--------------------|-----------|--------|
+| opening_CDUOut | Continuous | `CS_PumpAndValveControl` | Valve position | `CDU/Models/v0.mo`: `connect(controlBus.opening_CDUOut, valveCDU.opening)` |
+| CDUP_Nrel | Continuous | `CS_FixedPumpAndValveControl` | Speed setpoint | `connect(controlBus.CDUP_Nrel, CDUP.inputSignal)` |
+| opening_bypass | Continuous | `CS_BypassValveControl` | Bypass fraction | `Datacenter/Models/v0.mo`: `connect(controlBus.opening_bypass, valveBypass.opening)` |
+
+**Reward:** Regulate `T_CabSup` within safe bounds while minimizing `W_CDUP`
+
+### 12.3 Exogenous Inputs (Fed as Data — Not Controlled)
+
+| Signal | Physical Meaning | Entry Point | Source Line |
+|--------|-----------------|-------------|-------------|
+| `Towb` | Ambient wet bulb temperature | `coolingTower_Towb.mo` → CT control bus | `Modelica.Blocks.Interfaces.RealInput Towb "Enter wet bulb temperature"` in `coolingTower_Towb.mo` |
+| `Q_flow` | Server heat load (watts) | `Cabinet/Models/v0.mo` → `boundary.Q_flow_ext` | `connect(controlBus.Q_flow, boundary.Q_flow_ext)` in `Cabinet/Models/v0.mo` |
+
+---
+
+## 13. Global Model Assumptions
+
+All assumptions below were identified from component instantiation parameters, documentation strings, and media model choices across the analyzed files.
+
+| Assumption | Evidence | Source |
+|------------|----------|--------|
+| Single-phase liquid water throughout | No two-phase media or boiling models used anywhere | All fluid component instantiations use `LinearWater` or custom water media |
+| Incompressible approximation | Linear water media models with constant density | `Medium_inner = TRANSFORM.Media.Fluids.Water.LinearWaterHot_pT` in `CentralEnergyPlant/Models/v0.mo` |
+| Lumped chip by default | nX=nY=nZ=1 | `chip_3D.mo` parameter defaults |
+| Empirical UA table not generalizable | Table derived from Frontier CDU hardware | `CDU_HEX.mo` — hardcoded table values |
+| York correlation within bounds only | `BoundsYorkCalc` component enforces limits | `YorkCalc.mo`: `Buildings.Fluid.HeatExchangers.CoolingTowers.Correlations.BoundsYorkCalc bou` |
+| All CT towers see same ambient | Single Towb replicated to all towers | `CoolingTowerLoop/Models/v0.mo`: `Replicator replicator(nout=nCoolingTowers)` |
+| No fouling or degradation | No fouling resistance parameters | Absent from all HX models |
+| No solar/wind/humidity dynamics | Only Towb as environmental input | Only `RealInput Towb` in `coolingTower_Towb.mo` |
+| Workload = heat load only | Q_flow only — no PUE overhead | `Cabinet/Models/v0.mo` only injects Q_flow |
+| Parallel scaling approximation | N physical units → 1 simulated unit | `TRANSFORM.Fluid.Pipes.parallelFlow` used throughout |
+| Constant cp for water | cp = 4184 J/kg·K | `YorkCalc.mo` documentation: *"h = cp(T-T₀), cp = 4184 J/(kg K)"* |
+| Adiabatic chip ends | Adiabatic boundary on X and Y faces | `chip_3D.mo`: `T_infX1`, `T_infX2`, `T_infY1`, `T_infY2` all set to `Tamb` |
+
+---
+
+*ExaDigiT Physics Documentation | yhkd | March 17, 2026 | For Research Use*
+*Source model: ORNL ExaDigiT datacenterCoolingModel | LC-Opt (NeurIPS 2025)*
