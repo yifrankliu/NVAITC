@@ -9,6 +9,8 @@ Documenting progress, findings, and architectural decisisons
 
 Important TRANsient Simulation Framework of Reconfigurable Models (Transform) library documentation: https://github.com/ORNL-Modelica/TRANSFORM-Library?tab=readme-ov-file
 
+Loading Buildings Package from hidden OpenModelica folder: /Users/yhkd/.openmodelica/libraries/Buildings 11.0.0/package.mo (after installing pkg)
+
 To access hidden folder .openmodelica: 
 1. Cmd + Shift + G and type ~/.openmodelica/ in Finder
 2. ls ~/.openmodelica/libraries/ in terminal
@@ -25,6 +27,10 @@ Significant physical formulations & constraints are also broken down in exadigit
 
 ## Feb
 Setup docker img, openmodelica IDE, explored repos of LC-opt and exadigit. Decided to: build my own digital twin using free OpenModelica and develop my strategy & run tests based on my own digital twin.
+
+Running OpenModelica
+1. docker-om
+2. OMEdit
 
 ## Jan
 Literature review, project proposals, meetings with Cliff, agreement on research topic & direction

@@ -1,0 +1,2 @@
+# my_exadigit
+This folder is a exploration of the exadigit repo — a digital twin built on Oakridge National Laboratory's Frontier super computer. Functionalities are broken down from a high-level and physical formulations and frameworks are analyzed to gain a better understanding of the system in order to better structure and to build my own.
