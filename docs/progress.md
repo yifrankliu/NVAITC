@@ -161,6 +161,8 @@ To access hidden folder .openmodelica:
 end TemplatesCSM;
 ```
 
+5. Solution 4 does not work unfortunately, too many inheritance instances and dependencies — currently reached out to Yale center for research computing & Vineet Kumar from Oakridge National Laboratory, will continue developing OpenModelica in parallel but also trying to see if I can gain licensing to Dymola
+
 
 Significant files are mostly stored in models of a component, v0.mo. Exadigit file paths, significant files & high-level structure broken down in exadigit.
 
