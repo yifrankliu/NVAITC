@@ -1,6 +1,9 @@
 # ML_formulation
 initial ideas for ML layer architecture formulation.
 
+## TODO:
+1. Ask nicely for ORNL workload trace data, try to setup a call with Dr. Kumar.
+
 ## Analyze and/or Answer - Directions to find the most optimal strategy
 1. ORNL Frontier supercomputer architecture. From their Dymola physical model, FMU wrapping, to Python interactions.
     - Will ultimately need to build my own open-sourced OpenModelica compiler.
@@ -13,3 +16,13 @@ initial ideas for ML layer architecture formulation.
     - What ML architecture do other researchers deploy?
 
 ## Possible High-Level ML Architectures:
+check google documentation
+
+
+## Current data we have
+1. Figshare dataset: gives compute power at 10-minute resolutions for 2023.
+2. sustain-lc CSV gives blade-level power at 15-second resolution
+3. We need to get workload data, either:
+    - Top: directly get ORNL workload tracing data
+    - Mid: Adapt some other similar data source
+    - Bottom: Generate synthetic data
