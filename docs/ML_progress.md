@@ -1,7 +1,10 @@
 # ML Worklog
 
 ## Mar 19th
-SINGLE COMMAND TO RUN DOCKER FMU:
+SINGLE COMMAND TO RUN DOCKER FMU: (base) yhkd@Macintosh-9 sustain-lc % docker run --platform linux/amd64 -it --rm -v ~/Desktop/NVAITC_files/sustain-lc:/workspace -w /workspace sustain-lc-env:latest bash
+(base) root@bda759adb35d:/workspace# 
+
+Created dockerfile_u to run lc-opt FMU using MAC. Created Linux container.
 
 Pivoted from compiling my own OpenModelica FMU to work on ML layer first. To compile my own FMU, I will either have to wait for perost to resolve the ticket and ship v1.27.0, or I will have to try to fix the compiler myself. Instead, I've fetchewd the FMU from LC-opt to start developing the ML layer:
 
