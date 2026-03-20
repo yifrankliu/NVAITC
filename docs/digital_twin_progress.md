@@ -1,6 +1,9 @@
 # Digital twin work Log
 Documenting progress, findings, and architectural decisisons
 
+## TODO:
+- Once OpenModelica can actually compile, I'll need to write a file that automates the loading library process. But currently Dymola & OpenModelica incompatibilities + controlbus bug renders that unnecessary.
+
 ## Mar 19th Bug fixes & TemplatesCSM library integration
 - Contacted Dr. Kumar ORNL, located TemplatesCSM: https://code.ornl.gov/exadigit/AutoCSM, communications revealed a bug in OpenModelica & apparently a bug needs to be resolved before it could work on OpenModelica
 - Cloned "AutoCSM" library into my_exadigt
