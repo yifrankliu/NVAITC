@@ -7,8 +7,12 @@ Literature review to analyze existing gaps and what I could work on.
 1. [Coordinated Cooling and Compute Management for AI Datacenters](https://arxiv.org/html/2601.08113v1)
 Joint workload prediction + MPC cooling control with a hierarchical framework. The key differences are that it's air-cooled and targets LLM inference rather than HPC batch jobs, but architecturally closest to what I'm trying to do.
 
+They use LSTM for workload & weather prediction, which is outdated 2015 architecture, fits their problem though.
+
 2. [Digital Twin Cooling Optimization on Frontier](https://arxiv.org/html/2601.02275)
 Explicitly calls out weather forecast integration as future work - study to see why they stopped
+
+Deploys LightGBM and XGBoost via Gradient Boosted Trees.
 
 ---
 
