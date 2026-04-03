@@ -25,6 +25,7 @@
 11. System Energy Summary
 12. ML Optimization Interface
 13. Global Model Assumptions
+14. Input / Output Space Reference
 
 ---
 
@@ -1051,9 +1052,10 @@ A quick reference for all controllable inputs and measurable outputs. Intended a
 
 | Signal | Type | Range | Source File |
 |--------|------|-------|-------------|
-| `Nrel_HTWP` | Continuous | [0, 1] | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 645 |
-| `valveEHX` | Continuous | [0, 1] per train (4 trains) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` lines 614–628 |
-| `valveEHXb` | Continuous | [0, 1] secondary side | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` lines 614–628 |
+| `Nrel_HTWP` | Continuous | [0, 1] | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 274 |
+| `valveHTWP` | Continuous | [0, 1] | HWL pump train valve (staging) — `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 269 |
+| `valveEHX` | Continuous | [0, 1] per train (4 trains) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 249 |
+| `valveEHXb` | Continuous | [0, 1] secondary side (4 trains) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 255 |
 
 ### 14.4 CDU / Datacenter Control Inputs (Server-side)
 
@@ -1063,51 +1065,56 @@ A quick reference for all controllable inputs and measurable outputs. Intended a
 | `CDUP_Nrel` | Continuous | [0, 1] | CDU pump speed | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 115–117 |
 | `opening_bypass` | Continuous | [0, 1] | Datacenter bypass valve — short-circuits compute blocks at low load | `Systems/Datacenter/Models/v0.mo` |
 
+> **Note on output access:** Outputs fall into two categories. **Control bus signals** are directly wired to the expandable `ControlBus` connector and accessible in real-time for control logic. **Summary struct fields** are aggregated internal variables accessible as simulation logging outputs but not wired to the bus. Both are valid simulation observables; only bus signals are part of the control interface.
+
 ### 14.5 Temperature Outputs
 
-| Variable | Units | Notes | Source File |
-|----------|-------|-------|-------------|
-| `T_CabSup` | °C | **Critical** — server coolant supply temp (primary safety constraint) | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` line 135 |
-| `T_CabRet` | °C | Server coolant return temp | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` line 130 |
-| `T_HWL_Supply` | °C | Hot water loop supply to CDUs (21°C nominal) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
-| `T_HWL_Return` | °C | Hot water loop return from CDUs (29°C nominal) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
-| `T_CT_Outlet` | °C | Cooling tower leaving water (20°C nominal) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 47–53 |
-| `T_CT_Inlet` | °C | Cooling tower entering water (24.8°C nominal) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 54 |
-| `T_FacSup` / `T_FacRet` | °C | Facility water supply/return at CDU | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 55–61, 158 |
+| Variable | Access | Units | Notes | Source File |
+|----------|--------|-------|-------|-------------|
+| `T_CabSup` | **Bus** | °C | **Critical** — server coolant supply temp (primary safety constraint) | `CDU/Models/v0.mo` line 135 |
+| `T_sec_r` (return temp) | Summary | °C | Server coolant return temp — bus carries only `p_CabRet`, not the return temperature | `CDU/Models/v0.mo` line 24 |
+| `T_EHX_HotSupply` | **Bus** | °C | HWL supply to datacenter (21°C nominal) | `HotWaterLoop/Models/v0.mo` line 225 |
+| `T_EHX_HotReturn` | **Bus** | °C | HWL return from datacenter (29°C nominal) | `HotWaterLoop/Models/v0.mo` line 231 |
+| `T_fac_ctw_s` | Summary | °C | CT leaving water (20°C nominal) | `CoolingTowerLoop/Models/v0.mo` line 19 |
+| `T_fac_ctw_r` | Summary | °C | CT entering water (24.8°C nominal) | `CoolingTowerLoop/Models/v0.mo` line 18 |
+| `T_prim_s` / `T_prim_r` | Summary | °C | Facility water supply/return at CDU | `CDU/Models/v0.mo` lines 21–22 |
 
 ### 14.6 Pressure Outputs
 
-| Variable | Units | Source File |
-|----------|-------|-------------|
-| `p_CabSup`, `p_CabRet` | Pa | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 130, 142 |
-| `p_fac_ctw_r`, `p_fac_ctw_s` | Pa | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 159 |
+| Variable | Access | Units | Source File |
+|----------|--------|-------|-------------|
+| `p_CabSup`, `p_CabRet` | **Bus** | Pa | `CDU/Models/v0.mo` lines 142, 130 |
+| `pColdReturn` | **Bus** | Pa | CT water return pressure — `CoolingTowerLoop/Models/v0.mo` line 159 |
+| `pHotSupply`, `pHotReturn` | **Bus** | Pa | HWL supply/return pressures — `HotWaterLoop/Models/v0.mo` lines 213, 219 |
+| `p_fac_ctw_s`, `p_fac_ctw_r` | Summary | Pa | CT supply/return pressures (same physical points as above, summary alias) | `CoolingTowerLoop/Models/v0.mo` lines 16–17 |
 
 ### 14.7 Mass Flow Rate Outputs
 
-| Variable | Units | Source File |
-|----------|-------|-------------|
-| `m_flow_supply` | kg/s (total datacenter) | `Systems/Datacenter/Models/v0.mo` |
-| `m_flow_CTWP` | kg/s (CT pump trains) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 108–115 |
-| `m_flow_HTWP` | kg/s (HWL pump trains) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
-| `m_flow_CDUP` | kg/s (per CDU) | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 115–117 |
+| Variable | Access | Units | Source File |
+|----------|--------|-------|-------------|
+| `m_flow_supply` | **Bus** | kg/s | Total datacenter supply flow — `Datacenter/Models/v0.mo` line 111 |
+| `m_flow_ctw` | Summary | kg/s | CT loop total flow — `CoolingTowerLoop/Models/v0.mo` line 15 |
+| `m_flow_htw` | Summary | kg/s | HWL total flow — `HotWaterLoop/Models/v0.mo` line 23 |
+| `m_flow_sec` / `m_flow_prim` | Summary | kg/s | CDU secondary (server) and primary (facility) flow per CDU — `CDU/Models/v0.mo` lines 18–19 |
 
 ### 14.8 Power Outputs (Optimization Objectives)
 
+All power variables are **summary-only** — not wired to the control bus. Accessible as simulation logging outputs.
+
 | Variable | Units | Governing Law | Source File |
 |----------|-------|---------------|-------------|
-| `W_CT_fans` | W | P = y³ × P_nominal (cubic fan law) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 21; `Components/SubComponents/Fluid/CoolingTowers/BaseClasses/YorkCalc.mo` |
-| `W_CTWP` | W | P ∝ N³ (affinity law) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 20 |
-| `W_HTWP` | W | P ∝ N³ | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 645 |
-| `W_CDUP` | W | P ∝ N³ | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` line 20 |
-| `W_total_system` | W | Sum of all above | — |
+| `W_flow_CT` | W | P = y³ × P_nominal (cubic fan law) | `CoolingTowerLoop/Models/v0.mo` line 21 |
+| `W_flow_CTWP` | W | P ∝ N³ (affinity law) | `CoolingTowerLoop/Models/v0.mo` line 20 |
+| `W_flow_HTWP` | W | P ∝ N³ | `HotWaterLoop/Models/v0.mo` line 28 |
+| `W_flow_CDUP` | W | P ∝ N³ | `CDU/Models/v0.mo` line 20 |
 
 ### 14.9 Heat Flow Outputs
 
-| Variable | Units | Notes | Source File |
-|----------|-------|-------|-------------|
-| `Q_CDU` | W | Heat transferred per CDU HX (~628 kW nominal) | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` |
-| `Q_CT` | W | Total heat rejected to atmosphere | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 22 |
-| `Q_EHX` | W | Heat transferred in hot water loop EHX | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
+| Variable | Access | Units | Notes | Source File |
+|----------|--------|-------|-------|-------------|
+| `Q_flow_CT` | Summary | W | Total heat rejected to atmosphere — computed as `-1 × sum(cell[:].CT.Q_flow)` | `CoolingTowerLoop/Models/v0.mo` line 22 |
+| CDU heat transfer | Not a named output | W | No `Q_CDU` signal exists. Must be derived: Q = m_flow_sec × cp × (T_sec_r − T_sec_s) | `CDU/Models/v0.mo` summary fields |
+| EHX heat transfer | Not a named output | W | No `Q_EHX` signal. Must be derived from HWL energy balance | `HotWaterLoop/Models/v0.mo` |
 
 ### 14.10 RL / Optimization MDP Formulations
 
