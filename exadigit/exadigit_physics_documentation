@@ -1027,5 +1027,100 @@ All assumptions below were identified from component instantiation parameters, d
 
 ---
 
-*ExaDigiT Physics Documentation | yhkd | March 17, 2026 | For Research Use*
+## 14. Input / Output Space Reference
+
+A quick reference for all controllable inputs and measurable outputs. Intended as an entry point for RL/optimization work.
+
+### 14.1 Environmental / Exogenous Inputs
+
+| Signal | Type | Notes | Source File |
+|--------|------|-------|-------------|
+| `Towb` | Continuous (°C) | Ambient wet bulb temperature — hard physical constraint: T_CT_outlet ≥ Towb + approach | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 181 |
+| `Q_flow` | Continuous (W) | Server workload heat load injected at cabinet level; nominal ~15.7 MW total (25 CDUs × 628 kW) | `Systems/Datacenter/Systems/CoolingBlock/Systems/Cabinet/Models/v0.mo` line 348 |
+
+### 14.2 Cooling Tower Loop Control Inputs
+
+| Signal | Type | Range | Effect | Source File |
+|--------|------|-------|--------|-------------|
+| `valve_CT` | Continuous | [0, 1] | Stage CT cells on/off | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 173–203 |
+| `Nrel_CTWP` | Continuous | [0, 1] | CT pump speed setpoint (4 trains) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 108–115 |
+| `valve_CTWP` | Continuous | [0, 1] | CT pump train valve (staging) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 173–203 |
+| `Tset_CT` | Continuous | °C setpoint | CT leaving water temperature setpoint | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 173–203 |
+
+### 14.3 Hot Water Loop Control Inputs
+
+| Signal | Type | Range | Source File |
+|--------|------|-------|-------------|
+| `Nrel_HTWP` | Continuous | [0, 1] | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 645 |
+| `valveEHX` | Continuous | [0, 1] per train (4 trains) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` lines 614–628 |
+| `valveEHXb` | Continuous | [0, 1] secondary side | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` lines 614–628 |
+
+### 14.4 CDU / Datacenter Control Inputs (Server-side)
+
+| Signal | Type | Range | Effect | Source File |
+|--------|------|-------|--------|-------------|
+| `opening_CDUOut` | Continuous | [0, 1] | Building water valve to CDU HX | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 149–185 |
+| `CDUP_Nrel` | Continuous | [0, 1] | CDU pump speed | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 115–117 |
+| `opening_bypass` | Continuous | [0, 1] | Datacenter bypass valve — short-circuits compute blocks at low load | `Systems/Datacenter/Models/v0.mo` |
+
+### 14.5 Temperature Outputs
+
+| Variable | Units | Notes | Source File |
+|----------|-------|-------|-------------|
+| `T_CabSup` | °C | **Critical** — server coolant supply temp (primary safety constraint) | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` line 135 |
+| `T_CabRet` | °C | Server coolant return temp | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` line 130 |
+| `T_HWL_Supply` | °C | Hot water loop supply to CDUs (21°C nominal) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
+| `T_HWL_Return` | °C | Hot water loop return from CDUs (29°C nominal) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
+| `T_CT_Outlet` | °C | Cooling tower leaving water (20°C nominal) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 47–53 |
+| `T_CT_Inlet` | °C | Cooling tower entering water (24.8°C nominal) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 54 |
+| `T_FacSup` / `T_FacRet` | °C | Facility water supply/return at CDU | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 55–61, 158 |
+
+### 14.6 Pressure Outputs
+
+| Variable | Units | Source File |
+|----------|-------|-------------|
+| `p_CabSup`, `p_CabRet` | Pa | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 130, 142 |
+| `p_fac_ctw_r`, `p_fac_ctw_s` | Pa | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 159 |
+
+### 14.7 Mass Flow Rate Outputs
+
+| Variable | Units | Source File |
+|----------|-------|-------------|
+| `m_flow_supply` | kg/s (total datacenter) | `Systems/Datacenter/Models/v0.mo` |
+| `m_flow_CTWP` | kg/s (CT pump trains) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` lines 108–115 |
+| `m_flow_HTWP` | kg/s (HWL pump trains) | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
+| `m_flow_CDUP` | kg/s (per CDU) | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` lines 115–117 |
+
+### 14.8 Power Outputs (Optimization Objectives)
+
+| Variable | Units | Governing Law | Source File |
+|----------|-------|---------------|-------------|
+| `W_CT_fans` | W | P = y³ × P_nominal (cubic fan law) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 21; `Components/SubComponents/Fluid/CoolingTowers/BaseClasses/YorkCalc.mo` |
+| `W_CTWP` | W | P ∝ N³ (affinity law) | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 20 |
+| `W_HTWP` | W | P ∝ N³ | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` line 645 |
+| `W_CDUP` | W | P ∝ N³ | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` line 20 |
+| `W_total_system` | W | Sum of all above | — |
+
+### 14.9 Heat Flow Outputs
+
+| Variable | Units | Notes | Source File |
+|----------|-------|-------|-------------|
+| `Q_CDU` | W | Heat transferred per CDU HX (~628 kW nominal) | `Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo` |
+| `Q_CT` | W | Total heat rejected to atmosphere | `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo` line 22 |
+| `Q_EHX` | W | Heat transferred in hot water loop EHX | `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo` |
+
+### 14.10 RL / Optimization MDP Formulations
+
+Two natural control hierarchies from the codebase and LC-Opt paper (§12.1–12.2):
+
+**CT-level MDP** (`BaseClasses/ControlBus.mo`)
+- Actions: `valve_CT`, `Tset_CT`, `Nrel_CTWP`, `valve_CTWP`
+- Reward: minimize `W_CT_fans + W_CTWP`
+
+**CDU-level MDP** (`Systems/Datacenter/Systems/CoolingBlock/Systems/CDU/Models/v0.mo`)
+- Actions: `opening_CDUOut`, `CDUP_Nrel`, `opening_bypass`
+- Reward: regulate `T_CabSup` within safety bounds + minimize `W_CDUP`
+
+---
+
 *Source model: ORNL ExaDigiT datacenterCoolingModel | LC-Opt (NeurIPS 2025)*
