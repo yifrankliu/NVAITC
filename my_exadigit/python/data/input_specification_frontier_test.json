@@ -1,0 +1,49 @@
+{
+    "Name": "ORNLSupercomputing",
+	"InstanceName":"simulator",
+	"Structure":{"n":1},
+	"ModelClass":"v0",
+    "Systems": [
+        {
+            "Name": "Datacenter",
+			"InstanceName":"datacenter",
+			"Structure":{"n":1},
+            "Systems":[
+                {
+                    "Name": "CoolingBlock",
+					"InstanceName":"computeBlock",
+					"Structure":{"n":25},
+                    "Systems":[
+                        {
+                            "Name": "CDU",
+							"InstanceName":"cdu",
+							"Structure":{"n":1},
+                            "Systems":[{}]
+                        },
+                        {
+                            "Name": "Cabinet",
+							"Structure":{"n":3, "useParallel": true},
+							"InstanceName":"cabinet",
+                            "Systems":[{}]
+                        }]
+                }]
+        },
+        {
+            "Name": "CentralEnergyPlant",
+			"InstanceName":"centralEnergyPlant",
+			"Structure":{"n":1},
+            "Systems":[
+                {
+                    "Name": "HotWaterLoop",
+					"InstanceName":"hotWaterLoop",
+					"Structure":{"n":1},
+                    "Systems":[{}]
+                },
+                {
+                    "Name": "CoolingTowerLoop",
+					"InstanceName":"coolingTowerLoop",
+					"Structure":{"n":1},
+                    "Systems":[{}]
+                }]
+        }]
+}

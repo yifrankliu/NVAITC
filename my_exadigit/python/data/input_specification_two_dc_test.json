@@ -1,0 +1,96 @@
+{
+    "Name": "ORNLSupercomputing",
+	"InstanceName":"simulator",
+	"Structure":{"n":1},
+	"ModelClass":"v1",
+	"SourceName":"NULL",
+    "Systems": [
+        {
+            "Name": "Datacenter",
+			"InstanceName":"datacenter",
+			"Structure":{"n":1},
+			"ModelClass":"v0",
+			"SourceName":"NULL",
+            "Systems":[
+                {
+                    "Name": "CoolingBlock",
+					"InstanceName":"computeBlock",
+					"Structure":{"n":25},
+					"ModelClass":"v0",
+					"SourceName":"NULL",
+                    "Systems":[
+                        {
+                            "Name": "CDU",
+							"InstanceName":"cdu",
+							"ModelClass":"v0",
+							"Structure":{"n":1},
+							"SourceName":"NULL",
+                            "Systems":[{}]
+                        },
+                        {
+                            "Name": "Cabinet",
+							"Structure":{"n":3, "useParallel":true},
+							"InstanceName":"cabinet",
+							"ModelClass":"v0",
+							"SourceName":"v0",
+                            "Systems":[{}]
+                        }]
+                }]
+        },
+		{
+            "Name": "Datacenter",
+			"InstanceName":"datacenter_1",
+			"Structure":{"n":1},
+			"ModelClass":"v0",
+			"SourceName":"NULL",
+            "Systems":[
+                {
+                    "Name": "CoolingBlock",
+					"InstanceName":"computeBlock",
+					"Structure":{"n":25},
+					"ModelClass":"v0",
+					"SourceName":"NULL",
+                    "Systems":[
+                        {
+                            "Name": "CDU",
+							"InstanceName":"cdu",
+							"ModelClass":"v0",
+							"Structure":{"n":1},
+							"SourceName":"NULL",
+                            "Systems":[{}]
+                        },
+                        {
+                            "Name": "Cabinet",
+							"Structure":{"n":3, "useParallel":true},
+							"InstanceName":"cabinet",
+							"ModelClass":"v0",
+							"SourceName":"v0",
+                            "Systems":[{}]
+                        }]
+                }]
+        },
+        {
+            "Name": "CentralEnergyPlant",
+			"InstanceName":"centralEnergyPlant",
+			"Structure":{"n":1},
+			"ModelClass":"v0",
+			"SourceName":"NULL",
+            "Systems":[
+                {
+                    "Name": "HotWaterLoop",
+					"InstanceName":"hotWaterLoop",
+					"Structure":{"n":1},
+					"ModelClass":"v0",
+					"SourceName":"NULL",
+                    "Systems":[{}]
+                },
+                {
+                    "Name": "CoolingTowerLoop",
+					"InstanceName":"coolingTowerLoop",
+					"Structure":{"n":1},
+					"ModelClass":"v0",
+					"SourceName":"v0",
+                    "Systems":[{}]
+                }]
+        }]
+}
