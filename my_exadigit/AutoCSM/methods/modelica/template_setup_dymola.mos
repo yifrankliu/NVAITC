@@ -1,0 +1,53 @@
+// Dymola version of the script
+// This script is adapted to set up a project and manage directories in OMEdit.
+
+// Flags for directory setup
+useTempDirectory = true; // =true to auto-create a directory for storing generated files
+useTempSpecific = true; // Used if useTempDirectory = true. If =true, use a specific directory name; otherwise, use iterative naming (e.g., temp_001).
+tempName = "AutoCSM";
+
+// User Profile
+user_profile = Modelica.Utilities.System.getEnvironmentVariable("USERPROFILE", convertToSlash=true);
+
+// Define Working Directory
+dirWorking = user_profile + "/Documents/Dymola/";
+		
+// Example dependencies. Update to correct file paths.
+// libs = {"",""} Library dependencies in quotes separated by commas
+libs = TODO_ADD_DEPENDENCIES_HERE
+
+// Open Libraries
+for lib in libs loop
+    openModel(lib);
+end for;
+
+// Directory Management
+if not useTempDirectory then
+	// Change to the working directory if not using a temporary directory
+	cd(dirWorking);
+else
+	// Create a temporary directory for generated files and change directory
+	if useTempSpecific then
+		dirWorking_temp = dirWorking + tempName;
+		if not Modelica.Utilities.Files.exist(dirWorking_temp) then
+			Modelica.Utilities.Files.createDirectory(dirWorking_temp);
+		end if;
+		cd(dirWorking_temp);
+	else
+		i = 1;
+		dirWorking_temp = dirWorking + tempName + "_" + String(i, format="03G");
+		while Modelica.Utilities.Files.exist(dirWorking_temp) loop
+			i = i + 1;
+			dirWorking_temp = dirWorking + tempName + "_" + String(i, format="03G");
+		end while;
+		Modelica.Utilities.Files.createDirectory(dirWorking_temp);
+		cd(dirWorking_temp);
+	end if;
+end if;
+
+// Set simulation options
+Advanced.Translation.SparseActivate = true;
+Advanced.Translation.SparseActivateIntegrator = true;
+Advanced.Translation.SparseActivateSystems = true;
+Advanced.Define.GlobalOptimizations = 2;
+Advanced.Translation.ODEJacobianForDiscrete = true;

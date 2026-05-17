@@ -1,0 +1,60 @@
+{
+    "Name": "GenericDatacenter",
+    "InstanceName": "simulator",
+    "Structure": {"n": 2, "useParallel":false},
+    "ModelClass": "v0",
+    "Systems": [
+        {
+            "Name": "Datacenter",
+            "InstanceName": "datacenter",
+            "Structure": {"n": [2,2], "useParallel": [false,false]},
+            "ModelClass": "v0",
+            "Systems": [
+                {
+                    "Name": "CoolingBlock",
+                    "InstanceName": "computeBlock",
+                    "Structure": {"n": [[2,2],[2,2]], "useParallel":[[false,false],[false,false]]},
+                    "ModelClass": "v0",
+                    "Systems": [
+                        {
+                            "Name": "CDU",
+                            "InstanceName": "cdu",
+                            "ModelClass": "v0",
+                            "Structure": {"useParallel":[[[false,false], [false,false]],[[false,false], [false,false]]], "n":[[[1,1],[1,1]],[[1,1],[1,1]]]},
+                            "Systems": [{}]
+                        },
+                        {
+                            "Name": "Cabinet",
+                            "Structure": {"useParallel":[[[false,false],[false,false]],[[false,false],[false,false]]], "n":[[[3,3],[3,3]],[[3,3],[3,3]]]},
+                            "InstanceName": "cabinet",
+                            "ModelClass": "v0",
+                            "Systems": [{}]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "CentralEnergyPlant",
+            "InstanceName": "centralEnergyPlant",
+            "Structure": {"useParallel":[false,false], "n":[1,1]},
+            "ModelClass": "v0",
+            "Systems": [
+                {
+                    "Name": "IntermediateLoop",
+                    "InstanceName": "intermediateLoop",
+                    "Structure": {"useParallel":[[false],[false]], "n":[[1],[1]]},
+                    "ModelClass": "v0",
+                    "Systems": [{}]
+                },
+                {
+                    "Name": "CoolingTowerLoop",
+                    "InstanceName": "coolingTowerLoop",
+                    "Structure": {"useParallel":[[false],[false]], "n":[[1],[1]]},
+                    "ModelClass": "v0",
+                    "Systems": [{}]
+                }
+            ]
+        }
+    ]
+  }

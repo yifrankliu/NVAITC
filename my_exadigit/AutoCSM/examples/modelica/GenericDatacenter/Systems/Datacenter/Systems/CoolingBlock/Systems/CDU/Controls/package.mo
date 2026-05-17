@@ -1,0 +1,4 @@
+within GenericDatacenter.Systems.Datacenter.Systems.CoolingBlock.Systems.CDU;
+package Controls
+  extends TemplatesCSM.Icons.ControlsPackage;
+end Controls;

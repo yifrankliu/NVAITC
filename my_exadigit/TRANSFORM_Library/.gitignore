@@ -1,0 +1,47 @@
+# Ignore Dymola output, log and temporary files
+#######################################################################
+*.bak-mo
+*.mat
+*.mof
+dsres.txt
+empty.txt
+*.bak-mo
+*buildlog.txt
+*dsfinal.txt
+*dsin.txt
+*dslog.txt
+*dsmodel.c
+*dymosim.exe
+*dymosim.exp
+*dymosim.lib
+*.mat
+*dsmodelext*.c
+*dsmodelext*.obj
+DependencyGraph/__pycache__/
+DependencyGraph/Dependencies/
+*.gv
+DependencyGraph/DepMaster.png
+DependencyGraph/allMOFiles.txt
+request
+stat
+status
+stop
+simulator.log
+unitTests.log
+*.avi
+*.asv
+log.txt
+TRANSFORM/Resources/Images/~$Icons.pptm
+*unitTest_results.txt
+statistics.json
+
+# Python compiled files #
+#########################
+*.pyc
+dymola.log
+.ipynb_checkpoints/
+TRANSFORM/Resources/Images/~$Information.pptm
+unitTests-dymola.log
+TRANSFORM 0.*
+TRANSFORM/Resources/ReferenceResults/
+TRANSFORM/Resources/Scripts/
