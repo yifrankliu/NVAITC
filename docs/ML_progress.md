@@ -1,5 +1,32 @@
 # ML Worklog
 
+## May 14th:
+*cd to sustain-lc first
+1. Start Linux: 
+docker run --platform linux/amd64 -it --rm \
+  -v ~/Desktop/NVAITC_files/sustain-lc:/workspace \
+  -w /workspace sustain-lc-env:latest bash
+
+2. Activate conda environment: 
+conda activate sustain-lc
+
+3. Verify that the FMU loads: 
+python -c "
+from pyfmi import load_fmu
+fmu = load_fmu('LC_Frontier_5Cabinet_4_17_25.fmu')
+print('Loaded:', fmu.get_name())
+"
+
+4. Run frontier environment:
+python -c "
+from frontier_env import SmallFrontierModel
+env = SmallFrontierModel()
+obs = env.reset()
+print('Environment ready. Observation:', obs)
+"
+
+5. Then give inputs to the FMU to advance
+
 ## Mar 19th
 SINGLE COMMAND TO RUN DOCKER FMU: (base) yhkd@Macintosh-9 sustain-lc % docker run --platform linux/amd64 -it --rm -v ~/Desktop/NVAITC_files/sustain-lc:/workspace -w /workspace sustain-lc-env:latest bash
 (base) root@bda759adb35d:/workspace# 
