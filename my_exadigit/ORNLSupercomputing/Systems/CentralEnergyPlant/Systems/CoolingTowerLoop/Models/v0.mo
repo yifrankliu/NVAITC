@@ -45,18 +45,10 @@ model v0
         port_a_nominal.m_flow)                      annotation (
       Placement(transformation(extent={{120,-10},{140,10}})));
   TRANSFORM.Fluid.Sensors.PressureTemperature TP_CTWS(
-    redeclare package Medium = Medium,
-    redeclare function iconUnit =
-        TRANSFORM.Units.Conversions.Functions.Pressure_Pa.to_psi,
-    redeclare function iconUnit2 =
-        TRANSFORM.Units.Conversions.Functions.Temperature_K.to_degF)
+    redeclare package Medium = Medium)
     annotation (Placement(transformation(extent={{140,12},{160,32}})));
   TRANSFORM.Fluid.Sensors.PressureTemperature TP_CTWR(
-    redeclare package Medium = Medium,
-    redeclare function iconUnit =
-        TRANSFORM.Units.Conversions.Functions.Pressure_Pa.to_psi,
-    redeclare function iconUnit2 =
-        TRANSFORM.Units.Conversions.Functions.Temperature_K.to_degF)
+    redeclare package Medium = Medium)
     annotation (Placement(transformation(extent={{-120,10},{-140,30}})));
   Components.CoolingTower coolingTower[nCoolingTowers](redeclare package Medium =
         Medium)

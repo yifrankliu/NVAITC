@@ -11,14 +11,14 @@ model CoolingTower
   parameter Integer nCells=4;
   TRANSFORM.Fluid.Valves.ValveLinear valve[nCells](
     redeclare package Medium = Medium,
-    m_flow_start=31.25,
-    dp_nominal=100,
-    m_flow_nominal=100) annotation (Placement(transformation(
+    each m_flow_start=31.25,
+    each dp_nominal=100,
+    each m_flow_nominal=100) annotation (Placement(transformation(
         extent={{10,10},{-10,-10}},
         rotation=180,
         origin={-60,0})));
   ORNLSupercomputing.Components.SubComponents.Fluid.CoolingTowers.coolingTower_Towb
-    cell[nCells](CT_mflow_nom=55, CT_pinit=data.cooling_tower_p)
+    cell[nCells](each CT_mflow_nom=55, each CT_pinit=data.cooling_tower_p)
                                      annotation (Placement(
         transformation(extent={{-6,-10},{14,10}}, rotation=0)));
   TRANSFORM.Fluid.Volumes.MixingVolume plenum_inlet(
@@ -85,8 +85,8 @@ model CoolingTower
             80},{100,100}})));
   TRANSFORM.Fluid.Volumes.SimpleVolume plenum_cell[nCells](
     redeclare package Medium = Medium,
-    p_start=data.volCTWS2_pinit,
-    T_start=data.volCTWS2_Tinit,
+    each p_start=data.volCTWS2_pinit,
+    each T_start=data.volCTWS2_Tinit,
     redeclare model Geometry =
         TRANSFORM.Fluid.ClosureRelations.Geometry.Models.LumpedVolume.GenericVolume
         (V=0.01)) annotation (Placement(transformation(

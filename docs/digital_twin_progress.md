@@ -4,6 +4,122 @@ Documenting progress, findings, and architectural decisisons
 ## TODO:
 - Once OpenModelica can actually compile, I'll need to write a file that automates the loading library process. But currently Dymola & OpenModelica incompatibilities + controlbus bug renders that unnecessary.
 
+---
+
+## May 2026 — AutoCSM pipeline attempt + pivot to pre-built FMU
+
+### AutoCSM Pipeline Setup (2026-05-18)
+
+Cloned 4 repos into `NVAITC/cooling_model_workspace/`:
+- `AutoCSM/` — JSON → Modelica → FMU code generator
+- `datacenterCoolingModel/` — ORNL DC physics components
+- `modelica-buildings/` — LBL HVAC library
+- `TRANSFORM-Library/` — ORNL thermal-hydraulic library
+
+Created conda env `cooling-model` (python 3.13, numpy/matplotlib/pandas/fmpy).
+
+**Key finding:** AutoCSM only supports Dymola for FMU compilation (`SUPPORTED_FMU_COMPILERS = ['dymola']`). OpenModelica support is blocked by bug: https://github.com/OpenModelica/OpenModelica/issues/13065
+
+**Two code patches applied to AutoCSM** to run without Dymola:
+1. `AutoCSM/AutoCSM/languages/modelica/create_fmu_dymola.py` line 15 — wrapped `DymolaInterface` import in `try/except` so it fails silently
+2. `AutoCSM/examples/modelica/run_autocsm.py` — commented out `csm.create_fmu()` call with explanation
+
+**`.mo` generation succeeded** — `Simulator.mo`, `setup.mos`, and full `PROJECTNAME/` architecture scaffold generated in `AutoCSM/examples/modelica/temp/`.
+
+**Key distinction for future custom model work:**
+- `AutoCSM/examples/modelica/GenericDatacenter/` — working demo with physics (use for testing)
+- `AutoCSM/examples/modelica/temp/PROJECTNAME/` — blank scaffold for custom model (fill in physics from `datacenterCoolingModel/` components)
+
+### OMEdit FMU Compilation Attempt (GenericDatacenter demo)
+
+Load order for GenericDatacenter demo:
+1. `cooling_model_workspace/AutoCSM/methods/modelica/TemplatesCSM/package.mo`
+2. `cooling_model_workspace/TRANSFORM-Library/TRANSFORM/package.mo`
+3. `cooling_model_workspace/AutoCSM/examples/modelica/GenericDatacenter/package.mo`
+4. `cooling_model_workspace/AutoCSM/examples/modelica/temp/Simulator.mo`
+
+**Result: BLOCKED — same TRANSFORM errors as before + new array ordering error**
+
+```
+Error 1 (NEW): Array dimension mismatch [1,1,10,3] vs expected [10,1,1,3]
+  — AutoCSM generates array indices in Dymola order; OpenModelica expects different ordering
+Error 2: Variable showName not found in TRANSFORM.HeatExchangers.Simple_HX
+  — pre-existing TRANSFORM v0.5→v1.0 compat issue (same as before)
+Error 3: Function iconUnit not found in scope
+  — pre-existing TRANSFORM v0.5→v1.0 compat issue (same as before)
+```
+
+**Conclusion:** AutoCSM-generated `.mo` files do NOT sidestep OpenModelica/TRANSFORM compatibility issues. TRANSFORM library fixes are required regardless of how the `.mo` was generated. Without Dymola, custom FMU compilation remains blocked.
+
+### Decision: Pivot to pre-built FMU
+
+Using `sustain-lc/LC_Frontier_5Cabinet_4_17_25.fmu` + `frontier_env.py` to proceed with RL development. Custom FMU path deferred until either:
+- Dymola license obtained, OR
+- OpenModelica compiler bug (issue #13065) resolved + TRANSFORM fixes applied
+
+---
+
+## May 2026 — Full compatibility fix pass (Windows machine, Claude Code)
+
+All known TRANSFORM v0.5→v1.0 / Dymola→OpenModelica compatibility errors resolved in `my_exadigit/ORNLSupercomputing/`. Working copy is `NVAITC/my_exadigit/`. Do NOT use `my_exadigit_v2/datacenterCoolingModel/ORNLSupercomputing/` — that is a clean unfixed upstream clone.
+
+### Audit findings before this session
+A rigorous diff of `my_exadigit/` vs the clean upstream found the following were documented in earlier sessions but NOT actually applied to the files:
+
+- valveEHX1a, valveEHX1b, pumpTrain.valve arrays in HotWaterLoop/Models/v0.mo still missing `each`
+- TP_HTWS and TP_HTWR sensors still had `redeclare function iconUnit/iconUnit2` (removed in TRANSFORM v1.0)
+- TP_CTWS and TP_CTWR sensors in CoolingTowerLoop/Models/v0.mo same problem
+- EHX.mo and CDU_HEX.mo still had `showName` in annotations
+- EHX array instantiation in HotWaterLoop/Models/v0.mo missing `each EHX_p_a_start_1`
+- CoolingTower.mo: valve[], cell[], plenum_cell[] arrays all missing `each` on scalar params
+
+### Misdirection identified and corrected
+The NULL.mo fix documented in Mar 17th notes (stripping model to empty) was WRONG and was NOT applied (file unchanged). The original error ("can't find ORNLSupercomputing.BaseClasses.PartialModel in scope") was caused by missing TemplatesCSM, not by NULL.mo. Now that real TemplatesCSM is loaded from AutoCSM, NULL.mo works as-is. Do not strip it.
+
+### Fixes applied this session
+
+**File: `Systems/CentralEnergyPlant/Systems/HotWaterLoop/Models/v0.mo`**
+- `each EHX_p_a_start_1(displayUnit="Pa")` on EHX1 array instantiation
+- `each dp_start`, `each m_flow_start`, `each dp_nominal`, `each m_flow_nominal` on valveEHX1a array
+- `each dp_start`, `each m_flow_start`, `each dp_nominal`, `each m_flow_nominal` on valveEHX1b array
+- `each dp_start`, `each m_flow_start`, `each m_flow_nominal` on pumpTrain.valve
+- Removed `redeclare function iconUnit/iconUnit2` from TP_HTWS sensor
+- Removed `redeclare function iconUnit/iconUnit2` from TP_HTWR sensor
+
+**File: `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Models/v0.mo`**
+- Removed `redeclare function iconUnit/iconUnit2` from TP_CTWS sensor
+- Removed `redeclare function iconUnit/iconUnit2` from TP_CTWR sensor
+
+**File: `Systems/CentralEnergyPlant/Systems/CoolingTowerLoop/Components/CoolingTower.mo`**
+- `each m_flow_start`, `each dp_nominal`, `each m_flow_nominal` on valve[nCells] array
+- `each CT_mflow_nom`, `each CT_pinit` on cell[nCells] array
+- `each p_start`, `each T_start` on plenum_cell[nCells] array
+
+**File: `Components/SubComponents/Fluid/HeatExchangers/EHX.mo`**
+- `visible=DynamicSelect(true, showName)` → `visible=true`
+
+**File: `Components/SubComponents/Fluid/HeatExchangers/CDU_HEX.mo`**
+- `visible=DynamicSelect(true, showName)` → `visible=true`
+
+### General rules (updated)
+1. `constant` → `parameter` when sized by a parameter
+2. Add `each` before any scalar value assigned to a parameter of an array component instantiation
+3. Remove `showName` references (removed in TRANSFORM v1.0) → replace with `visible=true`
+4. Remove `iconUnit`/`iconUnit2` redeclarations from sensor instantiations (removed in TRANSFORM v1.0)
+5. Remove array slicing syntax `{a,b,c}[1:n]` → `{a,b,c}`
+6. `p_start`/`T_start` initialized from `someArray[1].port.X` are scalar references — do NOT add `each`
+
+### Current status after this session
+All known errors from the original 23-error list are resolved. The only remaining unknown is whether the OpenModelica compiler bug (filed by Scott Greenwood on perost) is fixed in the current Windows OpenModelica version. Next step: load the library stack in OMEdit and attempt compilation.
+
+### OMEdit load order (Windows)
+1. TRANSFORM v1.0: `my_exadigit/TRANSFORM_Library/TRANSFORM/package.mo`
+2. Buildings v11.0.0: OpenModelica hidden libraries folder
+3. TemplatesCSM (real): `my_exadigit/AutoCSM/methods/modelica/TemplatesCSM/package.mo`
+4. ORNLSupercomputing: `my_exadigit/ORNLSupercomputing/package.mo`
+
+---
+
 ## Mar 19th Bug fixes & TemplatesCSM library integration
 - Contacted Dr. Kumar ORNL, located TemplatesCSM: https://code.ornl.gov/exadigit/AutoCSM, communications revealed a bug in OpenModelica & apparently a bug needs to be resolved before it could work on OpenModelica
 - Cloned "AutoCSM" library into my_exadigt

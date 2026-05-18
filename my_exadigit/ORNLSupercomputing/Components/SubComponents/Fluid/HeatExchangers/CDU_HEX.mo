@@ -136,5 +136,5 @@ equation
           extent={{-149,-68},{151,-108}},
           lineColor={0,0,255},
           textString="%name",
-          visible=DynamicSelect(true, showName))}));
+          visible=true)}));
 end CDU_HEX;

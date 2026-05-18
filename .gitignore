@@ -1,1 +1,6 @@
 .DS_Store
+cooling_model_workspace/AutoCSM
+cooling_model_workspace/TRANSFORM-Library
+cooling_model_workspace/datacenterCoolingModel
+cooling_model_workspace/modelica-buildings
+sustain-lc/__pycache__/

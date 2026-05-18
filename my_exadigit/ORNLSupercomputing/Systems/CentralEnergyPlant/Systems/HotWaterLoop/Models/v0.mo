@@ -37,7 +37,7 @@ model v0
     nHeatExchangerTrains](
     redeclare package Medium_1 = Medium_1,
     redeclare package Medium_2 = Medium_2,
-    EHX_p_a_start_1(displayUnit="Pa"))
+    each EHX_p_a_start_1(displayUnit="Pa"))
     annotation (Placement(transformation(extent={{-10,-66},{10,-46}})));
   TRANSFORM.Fluid.FittingsAndResistances.SpecifiedResistance res_to_EHX[
     nHeatExchangerTrains](redeclare package Medium = Medium_1, each R=data.res_to_EHX_dP
@@ -45,24 +45,16 @@ model v0
     annotation (Placement(transformation(extent={{-74,-10},{-54,10}})));
   TRANSFORM.Fluid.Valves.ValveLinear valveEHX1a[nHeatExchangerTrains](
     redeclare package Medium = Medium_1,
-    dp_start(displayUnit="Pa") = 50,
-    m_flow_start=75,
-    dp_nominal(displayUnit="Pa") = 100,
-    m_flow_nominal=100)
+    each dp_start(displayUnit="Pa") = 50,
+    each m_flow_start=75,
+    each dp_nominal(displayUnit="Pa") = 100,
+    each m_flow_nominal=100)
     annotation (Placement(transformation(extent={{-40,-10},{-20,10}})));
   TRANSFORM.Fluid.Sensors.PressureTemperature TP_HTWS(
-    redeclare package Medium = Medium_1,
-    redeclare function iconUnit =
-        TRANSFORM.Units.Conversions.Functions.Pressure_Pa.to_psi,
-    redeclare function iconUnit2 =
-        TRANSFORM.Units.Conversions.Functions.Temperature_K.to_degF)
+    redeclare package Medium = Medium_1)
     annotation (Placement(transformation(extent={{130,70},{150,90}})));
   TRANSFORM.Fluid.Sensors.PressureTemperature TP_HTWR(
-    redeclare package Medium = Medium_1,
-    redeclare function iconUnit =
-        TRANSFORM.Units.Conversions.Functions.Pressure_Pa.to_psi,
-    redeclare function iconUnit2 =
-        TRANSFORM.Units.Conversions.Functions.Temperature_K.to_degF)
+    redeclare package Medium = Medium_1)
     annotation (Placement(transformation(extent={{-130,70},{-150,90}})));
   TRANSFORM.Fluid.Volumes.MixingVolume volHTWR2(
     redeclare package Medium = Medium_1,
@@ -111,10 +103,10 @@ model v0
         origin={-91.5,59.75})));
   TRANSFORM.Fluid.Valves.ValveLinear valveEHX1b[nHeatExchangerTrains](
     redeclare package Medium = Medium_2,
-    dp_start(displayUnit="Pa") = 50,
-    m_flow_start=100,
-    dp_nominal(displayUnit="Pa") = 100,
-    m_flow_nominal=125)
+    each dp_start(displayUnit="Pa") = 50,
+    each m_flow_start=100,
+    each dp_nominal(displayUnit="Pa") = 100,
+    each m_flow_nominal=125)
     annotation (Placement(transformation(extent={{50,-70},{30,-50}})));
   TRANSFORM.Fluid.Volumes.MixingVolume plenum_inlet_a2(
     redeclare package Medium = Medium_2,
@@ -179,9 +171,9 @@ model v0
         h=port_a1_start.h,
         m_flow=port_a1_start.m_flow/nPumpTrains) for i in 1:nPumpTrains},
     valve(
-      dp_start=50000000,
-      m_flow_start=100,
-      m_flow_nominal=150),
+      each dp_start=50000000,
+      each m_flow_start=100,
+      each m_flow_nominal=150),
     redeclare ORNLSupercomputing.Components.SubComponents.Fluid.Pumps.HTWP pump)
     annotation (Placement(transformation(extent={{-70,50},{-50,70}})));
   TRANSFORM.Fluid.Volumes.ExpansionTank_1Port press_HTWP(
