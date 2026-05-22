@@ -1,9 +1,11 @@
 # NVAITC
-Optimizing coupled cooling systems for large-scale data centers and supercomputers. Thermal model built on the framework laid by Oakridge National Laboratory's ExaDigit democratized Frontier Supercomputer digital twin project & sustain-lc.
+Optimizing coupled cooling systems for large-scale data centers and supercomputers. Going beyond basic reactive controllers and attempting to implement proactive cooling with added predictive consideration to exogenous weather/environmental variables & workload scheduling. Thermal model built on the framework laid by Oakridge National Laboratory's ExaDigit democratized Frontier Supercomputer digital twin project & sustain-lc.
 
 ## Current ML Formulation
+**rough ideas
 1. GAT/GINE on the blade-group nodes, which can then be made more granular to chip-wise when a more detailed, customized thermal model can be compiled via exadigit.
 2. DeepONet on fluid dynamics/fluid thermal dynamics once we traverse out of the cabinet racks' spatial domain.
+3. Rolling-time-horizon implementation for predictive capabilities. e.g. predict the next k=12 timesteps but only implement/use info from the immediate next time step.
 
 ## Contents
 ### 1. cooling_model_workspace
@@ -17,7 +19,7 @@ Will ultimately need to compile a more granular thermal digital model after ML a
 Contains helpful data files for training & testing, some are not in there yet.
 
 ### 3. docs
-Contains all relevant documentation of progress.
+Contains all relevant documentation of project progress.
 
 ### 4. exadigit_analysis
 Contains the tracing & analysis of ORNL's exadigit model, including the governing physical equations, assumptions made, and module-wise interactions between the three coolant loops (cold-plate <-> CDU <-> hot water loop/CT loop).

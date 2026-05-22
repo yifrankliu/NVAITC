@@ -26,3 +26,4 @@ check google documentation
     - Top: directly get ORNL workload tracing data
     - Mid: Adapt some other similar data source
     - Bottom: Generate synthetic data
+        - Exadigit will enable us to generate workload data if we get it running & compiling on OpenModelica, or somehow attain a dymola license.
