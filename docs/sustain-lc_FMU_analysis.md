@@ -335,15 +335,31 @@ $$x_{\text{norm}} = 2 \cdot \frac{x - x_{\min}}{x_{\max} - x_{\min}} - 1$$
 
 **Per CDU-cabinet pair (5 × 5 continuous = 25):** `spaces.Box(low=-1, high=1, shape=(5,))`
 
-| Action | Physical mapping | Range (physical) |
-|---|---|---|
-| Supply temp setpoint | $T_{\text{supply}} = 20 + 10(a+1)$ | 20 – 40°C |
-| Pressure differential | $\Delta p = 25 + 6.5(a+1)$ | 25 – 38 Pa |
-| Valve 1 (blade group 1) | Softmax-normalized opening | 0 – 1 |
-| Valve 2 (blade group 2) | Softmax-normalized opening | 0 – 1 |
-| Valve 3 (blade group 3) | Softmax-normalized opening | 0 – 1 |
+| Action | FMU variable | Physical mapping | Range (physical) |
+|---|---|---|---|
+| Supply temp setpoint | `Tsec_supply_nom_RL` | $T_{\text{supply}} = 20 + 10(a+1)$ → setpoint for `PID_CDUCV`, which actuates `valveCDU` (primary side) | 20 – 40°C |
+| Pressure differential | `dp_nom_RL` | $\Delta p = 25 + 6.5(a+1)$ → setpoint for `PID_CDUP`, which sets pump speed `CDUP_Nrel` | 25 – 38 psi |
+| Valve 1 (blade group 1) | `Valve_Stpts[1]` | Direct branch flow fraction (softmax with valves 2 & 3, sum = 1) | 0 – 1 |
+| Valve 2 (blade group 2) | `Valve_Stpts[2]` | Direct branch flow fraction (softmax with valves 1 & 3, sum = 1) | 0 – 1 |
+| Valve 3 (blade group 3) | `Valve_Stpts[3]` | Direct branch flow fraction (softmax with valves 1 & 2, sum = 1) | 0 – 1 |
 
-**Cooling tower (1 discrete = 1):** `spaces.Discrete(9)` — temperature setpoint delta as above.
+Note: supply temp and ΔP are **indirect** (setpoints fed into PIDs). Valve fractions are **direct** (set without a PID intermediary). `Valve_Stpts` are FMU-specific additions not present in the upstream ExaDigiT Modelica source.
+
+**Cooling tower (1 discrete = 1):** `spaces.Discrete(9)`
+
+| Action index | $\Delta T$ (K) | FMU variable | Physical mapping |
+|---|---|---|---|
+| 0 | −0.20 | `CT_RL_stpt` | Setpoint for CT fan PID; CT fan PID adjusts all 4 cell fan speeds to hit the leaving water temperature |
+| 1 | −0.15 | | |
+| 2 | −0.10 | | |
+| 3 | −0.05 | | |
+| 4 | 0.00 | | Rule-based baseline: $T_{\text{CT,set}} = T_{\text{wb}} + 5.556\text{K}$ |
+| 5 | +0.05 | | |
+| 6 | +0.10 | | |
+| 7 | +0.15 | | |
+| 8 | +0.20 | | |
+
+CT setpoint is always relative: $T_{\text{CT,set}} = T_{\text{wb}} + 5.556\text{K} + \Delta T_{\text{action}}$. Like the CDU, the fan speed is **indirect** — the CT fan PID actuates fan speed; you only command the water leaving temperature setpoint.
 
 ### 6.3 Exogenous Inputs (Not Controlled)
 
