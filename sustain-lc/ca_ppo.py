@@ -231,7 +231,7 @@ class CA_PPO:
         next_state = torch.FloatTensor(self.next_state).to(device)
         # calculate next state value
         with torch.no_grad():
-            next_state_value = self.policy_old.critic(next_state).detach()
+         next_state_value = self.policy_old.critic(next_state).detach()
         
         # for each action buffer we now do the following
         mc_returns, discounted_reward, old_states, old_actions, old_logprobs, old_state_values, advantages = {}, {}, {}, {}, {}, {}, {}

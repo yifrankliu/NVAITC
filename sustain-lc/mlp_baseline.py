@@ -111,7 +111,7 @@ class UnifiedActorCritic(nn.Module):
 
         return cdu_action_logprobs, ct_action_logprobs, cdu_dist_entropy, ct_dist_entropy, state_values
     
-class CA_PPO:
+class Unified_PPO:
     def __init__(self, state_dim, cdu_action_dim, ct_action_dim, num_centralized_actions,
                  lr_cdu_actor = 0.0003, lr_ct_actor = 0.0003, lr_critic = 0.001, gamma = 0.80,
                  K_epochs = 50, eps_clip = 0.2,
@@ -192,111 +192,131 @@ class CA_PPO:
         # cases do not exist for this baseline test
     
     def prepare_update_data(self,):
-        
-        # torchify and move next_state data to device for update
+
         next_state = torch.FloatTensor(self.next_state).to(device)
-        # calculate next state value
         with torch.no_grad():
             next_state_value = self.policy_old.critic(next_state).detach()
         
-        # for each action buffer we now do the following
-        mc_returns, discounted_reward, old_states, old_actions, old_logprobs, old_state_values, advantages = {}, {}, {}, {}, {}, {}, {}
-        for i in range(self.num_centralized_actions):
-            mc_returns[f'action_{i+1}'] = []
-            discounted_reward[f'action_{i+1}'] = next_state_value[i]
-            
-            for reward, is_terminal in zip(reversed(self.buffer_dict[f'action_{i+1}'].rewards), reversed(self.buffer_dict[f'action_{i+1}'].is_terminals)):
-                if is_terminal:
-                    discounted_reward[f'action_{i+1}'] = 0
-                discounted_reward[f'action_{i+1}'] = reward + (self.gamma * discounted_reward[f'action_{i+1}'])
-                mc_returns[f'action_{i+1}'].insert(0, discounted_reward[f'action_{i+1}'])
-                
-            # Normalizing the mc_returns
-            mc_returns[f'action_{i+1}'] = torch.tensor(mc_returns[f'action_{i+1}'], dtype=torch.float32).to(device)
-            mc_returns[f'action_{i+1}'] = (mc_returns[f'action_{i+1}'] - mc_returns[f'action_{i+1}'].mean()) / (mc_returns[f'action_{i+1}'].std() + 1e-7)
+        # action buffer loops, again split into cdu & ct
+        cdu_mc_returns = []
+        ct_mc_returns = []
+        cdu_discounted_reward = next_state_value
+        ct_discounted_reward = next_state_value
+
+        for cdu_reward, is_terminal in zip(reversed(self.buffer_dict['cdu_action'].rewards), reversed(self.buffer_dict['cdu_action'].is_terminals)):
+            if is_terminal:
+                    cdu_discounted_reward = 0
+            cdu_discounted_reward = cdu_reward + (self.gamma * cdu_discounted_reward)
+            cdu_mc_returns.insert(0, cdu_discounted_reward)
         
-            # convert list to tensor
-            old_states[f'action_{i+1}'] = torch.squeeze(torch.stack(self.buffer_dict[f'action_{i+1}'].states, dim=0)).detach().to(device)
-            old_actions[f'action_{i+1}'] = torch.squeeze(torch.stack(self.buffer_dict[f'action_{i+1}'].actions, dim=0)).detach().to(device)
-            old_logprobs[f'action_{i+1}'] = torch.squeeze(torch.stack(self.buffer_dict[f'action_{i+1}'].logprobs, dim=0)).detach().to(device)
-            old_state_values[f'action_{i+1}'] = torch.squeeze(torch.stack(self.buffer_dict[f'action_{i+1}'].state_values, dim=0)).detach().to(device)
+        for ct_reward, is_terminal in zip(reversed(self.buffer_dict['ct_action'].rewards), reversed(self.buffer_dict['ct_action'].is_terminals)):
+            if is_terminal:
+                    ct_discounted_reward = 0
+            ct_discounted_reward = ct_reward + (self.gamma * ct_discounted_reward)
+            ct_mc_returns.insert(0, ct_discounted_reward)
+    
+        # Normalization
+        cdu_mc_returns = torch.tensor(cdu_mc_returns, dtype=torch.float32).to(device)
+        cdu_mc_returns = (cdu_mc_returns - cdu_mc_returns.mean()) / (cdu_mc_returns.std() + 1e-7)
+        ct_mc_returns = torch.tensor(ct_mc_returns, dtype=torch.float32).to(device)
+        ct_mc_returns = (ct_mc_returns - ct_mc_returns.mean()) / (ct_mc_returns.std() + 1e-7)
+        
+        # States are the same for both cdu & ct
+        old_states = torch.squeeze(torch.stack(self.buffer_dict['cdu_action'].states, dim=0)).detach().to(device)
+        cdu_old_actions = torch.squeeze(torch.stack(self.buffer_dict['cdu_action'].actions, dim=0)).detach().to(device)
+        cdu_old_logprobs = torch.squeeze(torch.stack(self.buffer_dict['cdu_action'].logprobs, dim=0)).detach().to(device)
+        ct_old_actions = torch.squeeze(torch.stack(self.buffer_dict['ct_action'].actions, dim=0)).detach().to(device)
+        ct_old_logprobs = torch.squeeze(torch.stack(self.buffer_dict['ct_action'].logprobs, dim=0)).detach().to(device)
+        old_state_values = torch.squeeze(torch.stack(self.buffer_dict['cdu_action'].state_values, dim=0)).detach().to(device)
             
-            # calculate advantages
-            advantages[f'action_{i+1}'] = mc_returns[f'action_{i+1}'].detach() - old_state_values[f'action_{i+1}'].detach()
-            
+        # num_centralized_actions replaced by continuous cdu and discrete ct
+        cdu_advantages = cdu_mc_returns.detach() - old_state_values.detach()
+        ct_advantages = ct_mc_returns.detach() - old_state_values.detach()
+
         # now collect all the necessary variables in to their single counterparts by stacking them
         # and moving them to the device
-        advantages = torch.cat([advantages[f'action_{i+1}'] for i in range(self.num_centralized_actions)], dim=0).to(device)
-        mc_returns = torch.cat([mc_returns[f'action_{i+1}'] for i in range(self.num_centralized_actions)], dim=0).to(device)
-        old_states = torch.cat([old_states[f'action_{i+1}'] for i in range(self.num_centralized_actions)], dim=0).to(device)
-        old_actions = torch.cat([old_actions[f'action_{i+1}'] for i in range(self.num_centralized_actions)], dim=0).to(device)
-        old_logprobs = torch.cat([old_logprobs[f'action_{i+1}'] for i in range(self.num_centralized_actions)], dim=0).to(device)
-        old_state_values = torch.cat([old_state_values[f'action_{i+1}'] for i in range(self.num_centralized_actions)], dim=0).to(device)
+        
+        advantages = torch.cat(cdu_advantages, ct_advantages).to(device)
+        mc_returns = torch.cat(cdu_mc_returns, ct_mc_returns).to(device)
+        old_states = torch.cat(old_states).to(device)
+        cdu_old_actions = torch.cat(cdu_old_actions).to(device)
+        ct_old_actions = torch.cat(ct_old_actions).to(device)
+        old_logprobs = torch.cat(cdu_old_logprobs, ct_old_logprobs).to(device)
+        old_state_values = torch.cat(old_state_values).to(device)
         
         # now we have all the data we need to update the policy
         # return the variables to the update method
-        return mc_returns, discounted_reward, old_states, old_actions, old_logprobs, old_state_values, advantages
-            
-
+        return mc_returns, cdu_discounted_reward, ct_discounted_reward, old_states, cdu_old_actions, ct_old_actions, cdu_old_logprobs, ct_old_logprobs, old_state_values, cdu_advantages, ct_advantages
+    
     def update(self):
-        
-        # Monte Carlo estimate of returns
-        mc_returns, discounted_reward, old_states, old_actions, old_logprobs, old_state_values, advantages = self.prepare_update_data()      
+
+        # Monte Carlo estimation
+        mc_returns, cdu_discounted_reward, ct_discounted_reward, old_states, cdu_old_actions, ct_old_actions, cdu_old_logprobs, ct_old_logprobs, old_state_values, cdu_advantages, ct_advantages = self.prepare_update_data()
 
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
 
-            # Shuffle the data
+            # Shuffle in data
             indices = torch.randperm(old_states.size(0))
             old_states = old_states[indices]
-            old_actions = old_actions[indices]
-            old_logprobs = old_logprobs[indices]
-            advantages = advantages[indices]
+            cdu_old_actions = cdu_old_actions[indices]
+            ct_old_actions = ct_old_actions[indices]
+            cdu_old_logprobs = cdu_old_logprobs[indices]
+            ct_old_logprobs = ct_old_logprobs[indices]
+            cdu_advantages = cdu_advantages[indices]
+            ct_advantages = ct_advantages[indices]
             mc_returns = mc_returns[indices]
 
-            # Split the data into minibatches
+            # Split data into minibatches
             minibatch_size = 32
             num_minibatches = old_states.size(0) // minibatch_size
             for i in range(num_minibatches):
                 start = i * minibatch_size
                 end = (i + 1) * minibatch_size
 
-                # Get the minibatch data
+                #Get minibatch data
                 minibatch_old_states = old_states[start:end]
-                minibatch_old_actions = old_actions[start:end]
-                minibatch_old_logprobs = old_logprobs[start:end]
-                minibatch_advantages = advantages[start:end]
+                minibatch_cdu_old_actions = cdu_old_actions[start:end]
+                minibatch_ct_old_actions = ct_old_actions[start:ened]
+                minibatch_cdu_old_logprobs = cdu_old_logprobs[start:end]
+                minibatch_ct_old_logprobs = ct_old_logprobs[start:end]
+                minibatch_cdu_advantages = cdu_advantages[start:end]
+                minibatch_ct_advantages = ct_advantages[start:end]
                 minibatch_mc_returns = mc_returns[start:end]
 
-                # Evaluating old actions and values
-                logprobs, state_values, dist_entropy = self.policy.evaluate(minibatch_old_states, minibatch_old_actions)
+                # Evaluate old actions and values
+                cdu_action_logprobs, ct_action_logprobs, cdu_dist_entropy, ct_dist_entropy, state_values = self.policy.evaluate(minibatch_old_states, minibatch_cdu_old_actions, minibatch_ct_old_actions)
 
-                # match state_values tensor dimensions with mc_returns tensor
+                # match state_value tensor dims
                 state_values = torch.squeeze(state_values)
 
-                # Finding the ratio (pi_theta / pi_theta__old)
-                ratios = torch.exp(logprobs - minibatch_old_logprobs.detach())
+                # Find ratio (pi_theta / pi_theta_old)
+                cdu_ratios = torch.exp(cdu_action_logprobs - minibatch_cdu_old_logprobs.detach())
+                ct_ratios = torch.exp(ct_action_logprobs - minibatch_ct_old_logprobs.detach())
 
-                # Finding Surrogate Loss  
-                surr1 = ratios * minibatch_advantages
-                surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * minibatch_advantages
+                # Find Surrogate loss, again split into cdu and ct
+                cdu_surr1 = cdu_ratios * minibatch_cdu_advantages
+                cdu_surr2 = torch.clamp(cdu_ratios, 1-self.eps_clip, 1+self.eps_clip) * minibatch_cdu_advantages
+                ct_surr1 = ct_ratios * minibatch_ct_advantages
+                ct_surr2 = torch.clamp(ct_ratios, 1-self.eps_clip, 1+self.eps_clip) * minibatch_ct_advantages
 
-                # final loss of clipped objective PPO
-                loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, minibatch_mc_returns) - 0.01 * dist_entropy
+                # Loss for CDU & CT
+                cdu_loss = -torch.min(cdu_surr1, cdu_surr2) + 0.5 *self.MseLoss(state_values, minibatch_mc_returns) - 0.01 * cdu_dist_entropy
+                ct_loss = -torch.min(ct_surr1, ct_surr2) + 0.5 *self.MseLoss(state_values, minibatch_mc_returns) - 0.01 * ct_dist_entropy
+                loss = cdu_loss + ct_loss # simply summing the separate losses, could add hyperparameter for tuning
 
                 # take gradient step
                 self.optimizer.zero_grad()
                 loss.mean().backward()
                 self.optimizer.step()
-            
+        
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         # clear buffer
-        for i in range(self.num_centralized_actions):
-            self.buffer_dict[f'action_{i+1}'].clear()
-        
-        # return loss for tensorboard logging
+        self.buffer_dict['cdu_action'].clear()
+        self.buffer_dict['ct_action'].clear()
+
         return loss.mean().detach().cpu().numpy()
     
     def save(self, checkpoint_path):
@@ -307,4 +327,5 @@ class CA_PPO:
         self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=True))
 
 
-                 
+
+
