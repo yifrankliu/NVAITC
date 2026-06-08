@@ -87,7 +87,7 @@ def train():
     if not os.path.exists(log_dir):
           os.makedirs(log_dir)
 
-    log_dir = log_dir + '/' + env_name + '/'
+    log_dir = log_dir + '/' + env_name
     if not os.path.exists(log_dir):
           os.makedirs(log_dir)
 
