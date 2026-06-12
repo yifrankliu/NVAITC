@@ -1,6 +1,6 @@
 # Sustain-LC FMU Physical Analysis
 **Reference:** `LC_Frontier_5Cabinet_4_17_25.fmu` · `frontier_env.py` · `datacenterCoolingModel` Modelica sources · ExaDigiT documentation  
-**Date:** 2026-05-18
+**Date:** 2026-05-18 · **Updated:** 2026-06-12 (corrected CT cell count 4→2; hot water loop modeling status; inter-block coupling description; added facility power variables §6.5)
 
 ---
 
@@ -11,8 +11,9 @@ The pre-built FMU is a compiled snapshot of a subset of the ExaDigiT digital twi
 **Scope of the FMU:**
 - 5 CDU-cabinet pairs (Frontier has ~74 total)
 - 3 blade groups per cabinet (15 blade groups total)
-- 1 cooling tower with 4 cells
-- Does NOT model: per-chip thermal resistance, HRU/hot water loop in detail, inter-cabinet coolant coupling
+- 1 cooling tower with 2 cells (upstream ExaDigiT config uses 4; this FMU compiles only `cell[1]` and `cell[2]` — verified against `modelDescription.xml` 2026-06-12)
+- Hot water loop IS modeled internally (`hotWaterLoop[1]`: EHX trains, HTWP pump trains, mixing volumes `volHTWS`/`volHTWR`, TP sensors) but is not exposed in the RL observation/action space
+- Does NOT model: per-chip thermal resistance, direct cabinet-to-cabinet coolant coupling (compute blocks interact only weakly via the shared HTW/CT loops — see §8)
 
 **What is simplified relative to full ExaDigiT:**
 - Blade groups are lumped thermal masses (not per-blade or per-chip)
@@ -30,8 +31,9 @@ simulator[1]
 │       ├── cdu[1]           (1 CDU per compute block)
 │       └── cabinet[1..3]    (3 parallel cabinets per compute block, 3 blade groups each)
 └── centralEnergyPlant[1]
-    └── coolingTowerLoop[1]
-        └── coolingTower[1]  (4 cells in parallel)
+    ├── hotWaterLoop[1]      (EHX trains + HTWP pump trains + mixing volumes; internal, not RL-exposed)
+    └── coolingTowerLoop[1]  (CTWP pump train + basin)
+        └── coolingTower[1]  (2 cells in parallel)
 ```
 
 Each `computeBlock` models one CDU serving three parallel cabinets. The CDU connects to a facility hot water loop (primary side) and distributes cooled fluid to the cabinets (secondary side).
@@ -196,7 +198,7 @@ Valve control includes deadband: $\pm 0.3$°C (ratio 0.1).
 
 ### 5.1 Architecture
 
-One cooling tower system with 4 parallel cells, each independently controlled. Each cell has:
+One cooling tower system with 2 parallel cells (not 4 — see §1), each independently controlled. Each cell has:
 - A linear control valve (opening signal)
 - A York-correlation tower model (`coolingTower_Towb`)
 - A LimPID fan controller
@@ -253,7 +255,7 @@ In free convection mode: $P_{\text{fan}} = 0$.
 
 | Parameter | Value | Units |
 |---|---|---|
-| Number of cells | 4 | — |
+| Number of cells | 2 | — |
 | Design approach temperature | 3.89 | K |
 | Design range temperature | 5.56 | K |
 | Nominal water flow per cell | 62.82 | kg/s |
@@ -293,7 +295,7 @@ Base setpoint: $T_{\text{CT,set}} = T_{\text{wb}} + 10 \times (5/9) + \Delta T_{
 
 1. York correlation valid within ±20% of nominal design point
 2. Steady-state water/air contact at each timestep — no dynamic accumulation in fill media
-3. All 4 cells are identical; differences arise only from control signals
+3. Both cells are identical; differences arise only from control signals
 4. Fan power follows cubic law ($y^3$) — standard fan affinity approximation
 5. Evaporative makeup water not tracked; mass conservation assumed
 6. Wet-bulb temperature is an exogenous input — not computed from humidity model
@@ -349,7 +351,7 @@ Note: supply temp and ΔP are **indirect** (setpoints fed into PIDs). Valve frac
 
 | Action index | $\Delta T$ (K) | FMU variable | Physical mapping |
 |---|---|---|---|
-| 0 | −0.20 | `CT_RL_stpt` | Setpoint for CT fan PID; CT fan PID adjusts all 4 cell fan speeds to hit the leaving water temperature |
+| 0 | −0.20 | `CT_RL_stpt` | Setpoint for CT fan PID; CT fan PID adjusts both cell fan speeds to hit the leaving water temperature |
 | 1 | −0.15 | | |
 | 2 | −0.10 | | |
 | 3 | −0.05 | | |
@@ -394,6 +396,17 @@ $$R_{\text{cab}}^{v2} = 1.0 \cdot R_{\text{cab}}^{v1} + 3.0 \cdot R_{\text{cab}}
 
 Temperature reduction weighted 3× over load balancing.
 
+### 6.5 Facility Power Variables (readable via PyFMI, NOT in observation space)
+
+Discovered 2026-06-12: the FMU exposes every term of the total facility energy objective $E = W_{CT} + W_{CTWP} + W_{HTWP} + \sum_k W_{CDUP,k}$ as named variables, even though `frontier_env.py` does not read them. A true energy-minimizing reward is therefore implementable via PyFMI `get()` with no FMU recompilation:
+
+| Term | FMU variable | Notes |
+|---|---|---|
+| $W_{CDUP,k}$ | `simulator[1].datacenter[1].computeBlock[k].cdu[1].summary.W_flow_CDUP` | k = 1–5; `_kW` variant also available |
+| $W_{HTWP}$ | `simulator[1].centralEnergyPlant[1].hotWaterLoop[1].summary.W_flow_HTWP` | `_kW` variant available |
+| $W_{CTWP}$ | `simulator[1].centralEnergyPlant[1].coolingTowerLoop[1].summary.W_flow_CTWP` | `_kW` variant available |
+| $W_{CT}$ | `simulator[1].centralEnergyPlant[1].coolingTowerLoop[1].summary.W_flow_CT` | Total tower (fan) power; per-cell `cell[1/2].CT.PFan` also available |
+
 ---
 
 ## 7. Simulation Numerics
@@ -422,9 +435,9 @@ Temperature reduction weighted 3× over load balancing.
 | Number of cabinets | 5 | ~74 |
 | Blade resolution | 3 lumped groups/cabinet | Per-blade (possible) |
 | Chip resolution | Not modeled | Not modeled (ExaDigiT default) |
-| Hot water loop | Not exposed to RL | Full HotWaterLoop modeled |
-| Inter-cabinet coupling | None (hydraulically independent) | Shared manifold dynamics |
-| Cooling tower | 4-cell York correlation | Same |
+| Hot water loop | Modeled internally (EHX trains + HTWP pump trains + mixing volumes) but not exposed in obs/action space; `W_flow_HTWP` readable via PyFMI | Full HotWaterLoop modeled and configurable |
+| Inter-cabinet coupling | Within a block: none (cabinets hydraulically parallel). Between blocks: weak, aggregated coupling via shared HTW supply temperature and CT loop only | Shared manifold dynamics |
+| Cooling tower | 2-cell York correlation | 4-cell York correlation |
 | Workload data | Pre-recorded 15s CSV trace | Real telemetry or SST-Macro |
 | FMU solver control | Fixed at compile time | Configurable in Dymola |
 
