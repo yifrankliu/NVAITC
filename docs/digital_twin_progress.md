@@ -3,6 +3,8 @@ Documenting progress, findings, and architectural decisisons
 
 Need to consider other RL approaches, source real data.
 
+requested for source data
+
 ## TODO:
 - Once OpenModelica can actually compile, I'll need to write a file that automates the loading library process. But currently Dymola & OpenModelica incompatibilities + controlbus bug renders that unnecessary.
 
