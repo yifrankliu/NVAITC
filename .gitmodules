@@ -1,0 +1,3 @@
+[submodule "optimal_dc/external/sustain-lc"]
+	path = optimal_dc/external/sustain-lc
+	url = https://github.com/yifrankliu/sustain-lc.git

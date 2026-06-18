@@ -3,6 +3,11 @@ from datetime import datetime
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+
+# --- make the sustain-lc submodule importable (repo-relative, move-safe) ---
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "external" / "sustain-lc"))
+# ---------------------------------------------------------------------------
 from unified_mlp_baseline import Unified_PPO
 from frontier_env import SmallFrontierModel
 

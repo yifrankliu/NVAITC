@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
+
+# --- make the sustain-lc submodule importable (repo-relative, move-safe) ---
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "external" / "sustain-lc"))
+# ---------------------------------------------------------------------------
 from ca_ppo import RolloutBuffer
 
 ################################## set device ##################################
