@@ -110,6 +110,17 @@ Closest existing paper to the proposed approach. Same problem (DC cooling RL), s
 - **Significance:** Closest existing work combining liquid-cooled RL + workload control. Must differentiate: this work addresses single-system predictive control via FMU physics simulation, not multi-site carbon-aware dispatch.
 - **Link:** [arXiv 2502.08337](https://arxiv.org/pdf/2502.08337)
 
+### SustainDC: Benchmarking for Sustainable Data Center Control (NeurIPS 2024 D&B)
+- **Authors:** Naug, Guillen, Luna, Gundecha, … Sarkar (HPE / Hewlett Packard Labs) — *same lab lineage as sustain-lc/LC-Opt, and the conclusion explicitly states they are "working on realizing some of the proposed methods with consortiums like ExaDigiT."*
+- **Key idea:** A set of pure-Python Gymnasium environments for **multi-agent RL** over three coupled DC control problems: workload scheduling (`Env_LS`), cooling/HVAC (`Env_DC`), and auxiliary battery (`Env_BAT`). Objective is **carbon footprint** (CI-weighted energy), enabled by load-shifting flexible jobs to low-carbon-intensity hours. Reduced-order physics models implemented directly in Python (explicitly rejects FMUs over compilation/latency concerns).
+- **Workload modeling (the relevant part for the synthetic-generator effort):** **Replays, does not synthesize.** `Env_LS` streams recorded normalized CPU-utilization traces — open-source **Alibaba (2017)** and **Google (2011/2019)** *cluster* traces. File format is one year, **hourly** (~8760 rows), **a single aggregate `cpu_load` scalar (0–1) applied DC-wide** — every rack/CPU identical (cross-rack correlation degenerately = 1.0). The only workload "control" is rescheduling a flexible fraction `B_flex = α·B_t` into a queue for later hours. IT power is `P_CPU = f_cpu(inlet_temp, cpu_load)` — a linear, **temperature-dependent** curve (Sun et al.), i.e. it *does* model a temp→power coupling that the sustain-lc FMU lacks.
+- **Limitations vs this project:** **Air-cooled** (CRAH/chiller/cooling tower), **hourly** resolution, **no per-rack/per-node spatial structure**, workload is **replayed** not generated, objective is carbon not facility energy. ~240× coarser in time and ~25× coarser in space than our 15 s / 25-rack Frontier trace.
+- **Significance:** **Confirms the white space, not a scoop.** The most prominent sustainable-DC RL benchmark (i) replays rather than synthesizes workload, (ii) collapses workload to a single DC-wide scalar with zero spatial structure, and (iii) is air-cooled at hourly resolution. Our planned generative, per-rack, correlation-aware, 15 s liquid-cooling workload model with a controllable regime-A/regime-B shift sits squarely outside it. Two reusable takeaways: (a) the temperature-dependent IT-power curve is a peer precedent for the chip-level leakage future-work; (b) the Alibaba/Google cluster traces are usable for marginal/job-duration shapes **but not for cross-rack correlation** — cloud traces are heterogeneous/independent, the opposite of Frontier's gang-scheduled lockstep. Monitor the HPE/ExaDigiT linkage for scoop risk.
+- **Links:**
+  - [arXiv 2408.07841](https://arxiv.org/abs/2408.07841)
+  - [NeurIPS 2024 D&B PDF](https://proceedings.neurips.cc/paper_files/paper/2024/file/b6676756f8a935e208f394a1ba47f0bc-Paper-Datasets_and_Benchmarks_Track.pdf)
+  - [HPE dc-rl GitHub](https://github.com/HewlettPackard/dc-rl)
+
 ---
 
 ## 5. HPC-Specific Cooling Optimization
@@ -277,5 +288,60 @@ The FMU already *is* a world model — it rolls forward in time given actions. T
 | GNN-ODE surrogate of FMU hydraulics | GNN-ODE arXiv 2604.07292 | Strongest physics fit to liquid cooling topology; 105× faster than simulation; enables ensemble rollouts for uncertainty |
 
 **Most defensible novel contribution:** GNN-ODE or graph world model trained on FMU rollout data, with proactive forecasting (weather + workload) as exogenous inputs to the latent dynamics. Not done for liquid-cooled HPC. Supported directly by the hydraulic graph structure of the Frontier FMU. Positions against both Phyllis (no graph, no forecasting) and Graph Dreamer (no physics constraints, no liquid cooling).
+
+---
+
+## 11. Open Workload Trace Data Sources (for the synthetic generator)
+
+Surveyed 2026-06-18 while scoping the synthetic compute-power generator. Goal: source real HPC traces to calibrate marginal/job-duration distributions and (where possible) cross-node power correlation. **Key selection criterion: per-node POWER, high time resolution, and gang-scheduled HPC (not cloud).** Cloud cluster traces (Alibaba/Google/Azure) have the *wrong* correlation structure for Frontier — heterogeneous and weakly coupled vs. Frontier's gang-scheduled lockstep (verified cross-rack corr — see below) — so they inform marginals/durations only, never spatial correlation.
+
+**Verified cross-rack statistics (live recompute from `input_04-07-24.csv`, 25 racks × 5761 rows @ 15 s, 2026-06-18; in `workload_analysis.ipynb`):** mean off-diagonal correlation = **0.9939** (min 0.9831, max 0.9978); **PC1 explains 99.42% of variance** (day is essentially rank-1, `P_r(t) ≈ global(t)·scale_r + noise`); residual correlation after removing PC1 collapses to noise (mean −0.04, |max| 0.42) → **no rack-community block structure on this one day**. Double-edged: justifies a factorized shape factor for the generator, but empirically confirms the DeepSets-collapse risk for the GNN — one real day under-determines the spatial structure, which is the core motivation for a generator with a controllable synchronization knob.
+
+| Dataset | System | What it has | Power? | Resolution | Fit for our generator |
+|---|---|---|---|---|---|
+| **PM100** | Marconi100 (CINECA, Tier-0) | 231,116 jobs, May–Oct 2020; power at **node / CPU / memory** level | **Yes** (per-node) | per-job, fine-grained power | **Best match** — real HPC, per-node power; calibrate marginals + intra-job power profiles |
+| **F-DATA** | Fugaku (RIKEN) | ~24M jobs over 3 yrs (Mar 2021–Apr 2024); job-centric, energy/power fields | **Yes** (job energy/power) | per-job, 3-yr span | Excellent for marginals, job-duration & seasonality at massive scale |
+| **Parallel Workloads Archive** | NASA iPSC/860, CEA Curie, LANL CM-5, CIEMAT Euler, etc. | Job scheduling logs in **SWF** (arrival, nodes, runtime) | **No power** | per-job | Job **arrival/size/duration** structure → drives a job-superposition generator; map job→power ourselves |
+| **ExaDigiT (telemetry-replay side)** | leadership-class HPC | digital-twin framework that replays power/cooling/scheduling traces | Yes (system) | varies | Same consortium as our FMU; check for releasable Frontier/Frontier-like power traces |
+| Alibaba / Google / Azure | cloud clusters | CPU-utilization / inference traces | util only | hourly–minute | **Marginals & durations ONLY** — wrong cross-node correlation; do not use for spatial structure |
+
+**Implication for the generator:** the cleanest path is **(PWA job structure or PM100/F-DATA job records) → job-superposition model → map jobs onto Frontier's 25-rack layout to synthesize gang-scheduled correlation ourselves**, rather than importing any single trace's correlation. PM100 is the top priority to pull next (real HPC + per-node power). The one real day (`input_04-07-24.csv`) remains the regime-A calibration target and a real-data OOD test point.
+
+**Sources:**
+- [PM100 (Zenodo)](https://zenodo.org/records/10127767) · [SC'23 paper](https://dl.acm.org/doi/10.1145/3624062.3624263)
+- [F-DATA (Nature Scientific Data)](https://www.nature.com/articles/s41597-025-05633-1)
+- [Parallel Workloads Archive — logs](https://www.cs.huji.ac.il/labs/parallel/workload/logs.html) · [SWF format](https://www.cs.huji.ac.il/labs/parallel/workload/swf.html)
+- [SPARS: RL simulator for HPC power-aware scheduling (arXiv 2512.13268)](https://arxiv.org/html/2512.13268v2)
+
+---
+
+## 12. Workload / Power-Trace Synthesis Methods (vs. the proposed generator)
+
+Surveyed 2026-06-18 (alphaXiv). Distinct from §11 (raw data *sources*): this section covers *generative methods*. Verdict: trace synthesis is an active area, but **no found method hits our intersection** — per-rack, **gang-scheduled HPC (not cloud / not LLM-inference)**, correlation-aware, 15 s resolution, with a *controllable regime-A/B shift built for train/test separation*, feeding a **liquid-cooling FMU + GNN controller**. The pieces exist; the combination + purpose does not appear to. (Caveat: fast-moving area, search not exhaustive — treat as "no close match found.")
+
+| Method | Domain | Approach | Why it's not us |
+|---|---|---|---|
+| **Copula Flows** ([2101.00598](https://arxiv.org/abs/2101.00598)) | general synthetic data | normalizing-flow copulas | Confirms the **Sklar/copula decomposition is current ML, not a relic**; method, not an HPC application |
+| **LLMs as Microservice Trace Generators** ([2502.17439](https://arxiv.org/abs/2502.17439), UT Austin) | cloud microservices | LLM learns to generate realistic traces | Cloud microservices → wrong correlation structure (heterogeneous/independent) |
+| **Conditional GAN synthetic load time-series** ([2107.03545](https://arxiv.org/abs/2107.03545), ASU) | power-grid load | cGAN fit to observed load | Grid load, hourly, not per-rack HPC; learned (no controllable legible shift) |
+| **From Servers to Sites: Compositional Power Trace Generation of LLM Inference** ([2603.18383](https://arxiv.org/abs/2603.18383)) | datacenter, LLM inference | **composes** fine→facility power traces | Closest in *spirit*; but LLM-*inference* serving (request-driven, not gang-scheduled batch), for infra planning not control |
+| **Measurement of GenAI Workload Power Profiles** ([2604.07345](https://arxiv.org/abs/2604.07345)) | whole-facility | power profiling from **measurement** ("via observation") | Inference-serving, planning not control; measured not generative |
+| **Redbench** ([2511.13059](https://arxiv.org/abs/2511.13059)) | cloud DB | workload synthesis from cloud traces | DB query benchmarks; cloud |
+
+### Methodology rationale — why factored-mechanistic, and why it's rigorous
+
+**The decomposition is lossless by Sklar's theorem (1959):** any joint distribution = its marginals ⊗ a copula (dependence-only structure); the joint is exactly recoverable from the two. This *justifies* modeling the intractable `(T × 25)` joint as separable factors — it is **not** a claim that we fit a literal copula. Three facets (matching `workload_analysis.ipynb` §1–3): **marginals** (what values; near-exchangeable → one shared template + per-rack scale, justified by hardware *homogeneity* — note: NOT gang scheduling, since cloud DCs also share marginals), **temporal persistence** (within-rack job duration/autocorrelation), and **cross-rack coupling** (synchronization, the 0.994, justified by *gang scheduling / SPMD* — the Frontier-specific part cloud traces get wrong).
+
+**Chosen dependence mechanism = job-superposition (mechanistic), not a fitted copula.** "A job lands on k contiguous racks for duration d" induces a structured copula but is interpretable and **extrapolates to unseen rack counts** (the 5→25 transfer story). We never import any trace's correlation matrix — we synthesize gang-scheduled correlation ourselves.
+
+**Why not a deep generative model (GAN / diffusion / VAE)?** — the reviewer-defense:
+1. **Data budget = one day** (≈1 autocorrelated sample of the joint). Deep generators overfit/memorize; a low-parameter factored model is estimable from n≈1.
+2. **Need a controllable, *legible* regime-B shift** ("jobs bigger / longer / more synchronized"). Black-box generators sample the *training* distribution; they cannot produce a named, defensible OOD shift.
+3. **Extrapolation to unseen topologies.** Learned generators interpolate within their support; mechanistic superposition extrapolates by construction.
+4. **Per-factor validation.** Falsify the generator on marginal KL *and* correlation-matrix distance *and* the held-out real day — stronger and more diagnostic than one aggregate likelihood/FID.
+
+**Bayesian-framing caveat:** being Bayesian yields a posterior over the parameters of a model *whose form you already chose*; with n≈1 day the factorization **is** the structural prior that makes the data informative. The decomposition is orthogonal to Bayesian-vs-frequentist — you can be Bayesian about each factor.
+
+**Honest novelty framing:** the contribution is **not** "we invented power-trace synthesis" (we didn't — see table). It is the *intersection + purpose*: a correlation-aware, controllable, gang-scheduled HPC workload generator purpose-built to create a defensible distribution shift for evaluating a liquid-cooling control policy on an FMU digital twin.
 
 ---
