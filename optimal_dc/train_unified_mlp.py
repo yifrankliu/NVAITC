@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
-# --- make the sustain-lc submodule importable (repo-relative, move-safe) ---
+# --- making the sustain-lc submodule importable (repo-relative, move-safe) ---
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "external" / "sustain-lc"))
 # ---------------------------------------------------------------------------
