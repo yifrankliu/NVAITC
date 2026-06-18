@@ -1,2 +1,8 @@
 .DS_Store
-user_memory.md
+user_memory.md# large data / binaries — keep out of git
+*.parquet
+__pycache__/
+*.pyc
+*.tfevents.*
+Unified_MLP_logs/
+runs/

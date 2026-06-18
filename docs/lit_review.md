@@ -138,9 +138,16 @@ Closest existing paper to the proposed approach. Same problem (DC cooling RL), s
 - **Link:** [Climate Change AI @ NeurIPS 2024](https://www.climatechange.ai/papers/neurips2024/28)
 
 ### LC-Opt: RL for Liquid-Cooled HPC (NeurIPS 2025)
+- **Authors:** Naug, Guillen, V. Kumar (ORNL), Greenwood (ORNL), Brewer (ORNL), … Sarkar — HPE + ORNL (arXiv 2511.00116).
 - **Key idea:** RL agents controlling cooling tower and blade group MDPs for Frontier supercomputer. FMU compiled from ExaDigiT Modelica model. Gymnasium interface. Two separate MDPs: CT control (minimize fan/pump power) and blade group control (regulate server temps). Also benchmarks agentic LLM-based control and policy distillation into decision trees.
 - **Limitations:** **Reactive RL** — agents see current state only, no forecasting. No weather prediction. No workload scheduling integration. Pre-compiled FMU, not open source.
+- **Workload preprocessing is UNDOCUMENTED (audited 2026-06-18, full v1/v2 trace verified in `frontier_env.py`):** The paper never describes the exogenous-workload pipeline. Appendix M.3 "Dataset Preparation" is two sentences — "download the **processed file**, place at `data/input_04-07-24.csv`" (a real ORNL Frontier *cold-day* trace, 2024-04-07, from `code.ornl.gov/exadigit`) — with no statement of how it's processed. The actual `exogen_gen_v=2` pipeline (used to train+eval ALL baselines) is **÷5 → ÷3 → repeat×3 → roll(7.5h/15h) → time-multiplex 25→5 → softmax×max → smooth**, and we empirically verified it **flattens the facility compute total to a time-constant** (std 0.0000 vs raw 5.2–26.6 MW) — only the spatial blade-group split varies. Two material consequences:
+  1. **§7.2 "Discovery of Optimal Blade Control"** (headline qualitative result: multihead agent allocates coolant to higher-power blade groups, Spearman 0.68, Fig 9) **rests on synthetic per-blade structure** — the BG1/BG2/BG3 power differences and "quasi-periodic" nature are manufactured by the undocumented `roll` (BG2 = BG1 replayed 7.5h later) + cyclic replay, not real per-blade physics.
+  2. **"Evaluated on an unseen exogenous trace"** (Tables 3, 7) is asserted but the generation of the held-out trace is **never described** → genuine train/test separation unverifiable from the paper.
+  - The ONLY workload manipulation they *do* disclose is the Modelica `Φ` polynomial (Appendix O.1) — a *different* transform, openly stated to "make the problem hard for RL," not for realism.
+  - **For our paper:** factual, measured critique ("preprocessing undocumented in the paper; as-shipped pipeline flattens total compute to constant and synthesizes per-blade structure via time-shifted copies") motivates the faithful generator. Show the flattening empirically (`workload_analysis.ipynb`) before asserting publicly. NOT an accusation — benchmark papers commonly leave data prep to code; it's a reproducibility gap, but a *material* one.
 - **Links:**
+  - [arXiv 2511.00116](https://arxiv.org/abs/2511.00116)
   - [OpenReview PDF](https://openreview.net/pdf/28b2641d7ee3f811d244578e6b4402a93b25c234.pdf)
   - [HPE sustain-lc GitHub](https://github.com/HewlettPackard/sustain-lc)
 
