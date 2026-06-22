@@ -181,7 +181,7 @@ class WorkloadConfig:
         """Build a CALIBRATION STARTING POINT for regime A from the frozen spec.
 
         Bucket-A knobs (floor, per-rack scale, job-power level) are read straight
-        from the spec; arrival/duration are seeded from the occupancy and tau
+        from the spec; arrival/duration are seeded from the MEAN and tau
         constraints. These are starting values for the MSM/ABC search, NOT the
         calibrated answer -- run generate() -> validate.py and adjust.
         """
@@ -191,6 +191,8 @@ class WorkloadConfig:
         marg = spec["marginal"]
         floor = float(marg["idle_floor_W"])
         busy = float(marg["busy_level_W"])
+        grand_mean = float(marg["grand_mean_W"])
+        job_power_mean = busy - floor
 
         # E[d] ~= tau (1/e autocorrelation), converted steps -> seconds.
         tau_steps = float(spec["temporal"]["autocorr_1e_tau_steps"])
@@ -200,17 +202,27 @@ class WorkloadConfig:
         sigma = 0.7
         mu = math.log(mean_dur_s) - sigma ** 2 / 2.0
 
-        # occupancy constraint: lambda * E[d] ~= -ln(1 - busy_fraction) = ln 2.
-        lam = math.log(2.0) / mean_dur_s
+        # job size as a fraction of the machine (near full-machine for regime A).
+        a_size, b_size = 40.0, 1.5
+        frac_mean = a_size / (a_size + b_size)  # E[job_size_frac] ~= 0.964
+
+        # Seed arrival rate from the MEAN constraint, NOT busy-fraction. The M/G/inf
+        # mean is  E[power_r] = floor + occupancy * job_power_mean, so to hit
+        # grand_mean we need occupancy = (grand_mean - floor) / job_power_mean; and
+        # per-rack occupancy = lambda * E[job_size_frac] * E[d]. (Deriving lambda from
+        # busy-fraction = 0.5 -> ln2 instead overshoots the mean by ~18%; the mean
+        # and busy-fraction constraints are not mutually consistent under this model.)
+        occupancy = (grand_mean - floor) / job_power_mean
+        lam = occupancy / (frac_mean * mean_dur_s)
 
         return cls(
             idle_floor_W=floor,
             per_rack_scale=list(marg["per_rack_scale"]),
-            job_power=DistSpec("normal", {"mean": busy - floor, "std": 0.05 * (busy - floor)}),
+            job_power=DistSpec("normal", {"mean": job_power_mean, "std": 0.05 * job_power_mean}),
             arrival_rate_per_s=lam,
             duration=DistSpec("lognormal", {"mu": mu, "sigma": sigma}),
             burstiness=0.0,
-            job_size=DistSpec("beta", {"a": 40.0, "b": 1.5}),  # mean ~0.96 -> near full-machine
+            job_size=DistSpec("beta", {"a": a_size, "b": b_size}),  # mean ~0.96 -> near full-machine
             placement="scattered",
             noise_amp_W=0.0,
         )
