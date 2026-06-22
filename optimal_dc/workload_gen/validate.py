@@ -79,8 +79,9 @@ class Check:
     value: float
     bound: str         # human-readable target/bound
     passed: bool
-    norm_dev: float    # signed normalized deviation from the point target (for Q)
+    norm_dev: float    # signed normalized deviation from the point target (-> Q_faithful)
     target: float = 0.0  # the spec point value this stat should match (for comparison)
+    feas_dev: float = 0.0  # normalized distance OUTSIDE the tolerance (-> Q_feasible); 0 if passing
 
     def __str__(self) -> str:
         mark = "pass" if self.passed else "fail"
@@ -91,15 +92,24 @@ class Check:
 @dataclass
 class Report:
     checks: list[Check]
-    distance: float           # MSM objective Q(theta)
+    distance_feasible: float   # Q measuring distance OUTSIDE the tolerances (0 <=> all pass)
+    distance_faithful: float   # Q measuring distance to the spec POINT targets (full faithfulness)
     stats: dict = field(repr=False, default_factory=dict)
 
     @property
     def passed(self) -> bool:
         return all(c.passed for c in self.checks)
 
+    @property
+    def distance(self) -> float:
+        """Default Q for the calibration search = the feasibility objective
+        (Q -> 0 exactly when every check passes)."""
+        return self.distance_feasible
+
     def __str__(self) -> str:
-        head = f"Validation: {'pass' if self.passed else 'fail'}   Q(theta) = {self.distance:.4g}"
+        head = (f"Validation: {'pass' if self.passed else 'fail'}   "
+                f"Q_feasible = {self.distance_feasible:.4g}   "
+                f"Q_faithful = {self.distance_faithful:.4g}")
         return "\n".join([head, *map(str, self.checks)])
 
 
@@ -116,7 +126,6 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
     stats = compute_stats(P, dt)
     tol = spec["tolerances"]
     checks: list[Check] = []
-    sq_devs: list[float] = []
 
     def rel_dev(value: float, target: float) -> float:
         return (value - target) / target if target != 0 else 0.0
@@ -131,10 +140,10 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         checks.append(Check(
             "per_rack_mean", "relative", worst * 100,
             f"max |dev| {worst*100:.1f}% <= {rel*100:.0f}%", worst <= rel,
-            float(np.sqrt((devs ** 2).mean())),  # RMS rel dev into Q
+            float(np.sqrt((devs ** 2).mean())),  # RMS rel dev -> Q_faithful
             target=0.0,  # value is a % deviation; 0% is the ideal
+            feas_dev=max(0.0, worst - rel),  # excess beyond the +/-rel band
         ))
-        sq_devs.append(checks[-1].norm_dev ** 2)
 
     # --- total mean (relative) ---
     if "total_mean" in tol:
@@ -146,8 +155,8 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
             "total_mean_W", "relative", val,
             f"{val/1e6:.2f} MW vs {target/1e6:.2f} +/-{rel*100:.0f}%", abs(d) <= rel, d,
             target=target,
+            feas_dev=max(0.0, abs(d) - rel),
         ))
-        sq_devs.append(d ** 2)
 
     # --- pc1 var share (floor) ---
     if "pc1_var_share" in tol:
@@ -157,8 +166,8 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         checks.append(Check(
             "pc1_var_share", "floor", val, f">= {lo}", val >= lo, rel_dev(val, target),
             target=target,
+            feas_dev=max(0.0, (lo - val) / target),  # shortfall below the floor
         ))
-        sq_devs.append(checks[-1].norm_dev ** 2)
 
     # --- ramp excess kurtosis (floor) ---
     if "ramp_excess_kurtosis" in tol:
@@ -168,8 +177,8 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         checks.append(Check(
             "ramp_excess_kurtosis", "floor", val, f">= {lo}", val >= lo, rel_dev(val, target),
             target=target,
+            feas_dev=max(0.0, (lo - val) / target),
         ))
-        sq_devs.append(checks[-1].norm_dev ** 2)
 
     # --- off-diagonal correlation mean (band) ---
     if "offdiag_corr_mean" in tol:
@@ -180,7 +189,12 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
             "offdiag_corr_mean", "band", val, f"in [{lo}, {hi}]", lo <= val <= hi,
             rel_dev(val, target),
             target=target,
+            feas_dev=max(0.0, lo - val, val - hi) / target,  # distance outside the band
         ))
-        sq_devs.append(checks[-1].norm_dev ** 2)
 
-    return Report(checks=checks, distance=float(sum(sq_devs)), stats=stats)
+    return Report(
+        checks=checks,
+        distance_feasible=float(sum(c.feas_dev ** 2 for c in checks)),
+        distance_faithful=float(sum(c.norm_dev ** 2 for c in checks)),
+        stats=stats,
+    )
