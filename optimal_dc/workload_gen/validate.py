@@ -80,10 +80,12 @@ class Check:
     bound: str         # human-readable target/bound
     passed: bool
     norm_dev: float    # signed normalized deviation from the point target (for Q)
+    target: float = 0.0  # the spec point value this stat should match (for comparison)
 
     def __str__(self) -> str:
-        mark = "PASS" if self.passed else "FAIL"
-        return f"  [{mark}] {self.name:<22} = {self.value:< 12.5g}  ({self.bound})"
+        mark = "pass" if self.passed else "fail"
+        return (f"  [{mark}] {self.name:<22} = {self.value:< 12.5g}  "
+                f"target {self.target:< 12.5g}  ({self.bound})")
 
 
 @dataclass
@@ -97,7 +99,7 @@ class Report:
         return all(c.passed for c in self.checks)
 
     def __str__(self) -> str:
-        head = f"Validation: {'PASS' if self.passed else 'FAIL'}   Q(theta) = {self.distance:.4g}"
+        head = f"Validation: {'pass' if self.passed else 'fail'}   Q(theta) = {self.distance:.4g}"
         return "\n".join([head, *map(str, self.checks)])
 
 
@@ -130,6 +132,7 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
             "per_rack_mean", "relative", worst * 100,
             f"max |dev| {worst*100:.1f}% <= {rel*100:.0f}%", worst <= rel,
             float(np.sqrt((devs ** 2).mean())),  # RMS rel dev into Q
+            target=0.0,  # value is a % deviation; 0% is the ideal
         ))
         sq_devs.append(checks[-1].norm_dev ** 2)
 
@@ -142,6 +145,7 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         checks.append(Check(
             "total_mean_W", "relative", val,
             f"{val/1e6:.2f} MW vs {target/1e6:.2f} +/-{rel*100:.0f}%", abs(d) <= rel, d,
+            target=target,
         ))
         sq_devs.append(d ** 2)
 
@@ -152,6 +156,7 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         val = stats["pc1_var_share"]
         checks.append(Check(
             "pc1_var_share", "floor", val, f">= {lo}", val >= lo, rel_dev(val, target),
+            target=target,
         ))
         sq_devs.append(checks[-1].norm_dev ** 2)
 
@@ -162,6 +167,7 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         val = stats["ramp_excess_kurtosis"]
         checks.append(Check(
             "ramp_excess_kurtosis", "floor", val, f">= {lo}", val >= lo, rel_dev(val, target),
+            target=target,
         ))
         sq_devs.append(checks[-1].norm_dev ** 2)
 
@@ -173,6 +179,7 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         checks.append(Check(
             "offdiag_corr_mean", "band", val, f"in [{lo}, {hi}]", lo <= val <= hi,
             rel_dev(val, target),
+            target=target,
         ))
         sq_devs.append(checks[-1].norm_dev ** 2)
 
