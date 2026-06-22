@@ -34,7 +34,7 @@
       "std": 37796.04880271103
     }
   },
-  "arrival_rate_per_s": 0.00026557363239844645,
+  "arrival_rate_per_s": 0.00020588349577824565,
   "duration": {
     "family": "lognormal",
     "params": {
