@@ -27,16 +27,18 @@ The pre-built FMU is a compiled snapshot of a subset of the ExaDigiT digital twi
 ```
 simulator[1]
 ├── datacenter[1]
-│   └── computeBlock[1..5]  (5 CoolingBlocks in sustain-lc, 25 in full Frontier config)
+│   └── computeBlock[1..5]  (= CDU GROUPS, not racks; 5 here, 25 in full Frontier config)
 │       ├── cdu[1]           (1 CDU per compute block)
-│       └── cabinet[1..3]    (3 parallel cabinets per compute block, 3 blade groups each)
+│       └── cabinet[1..3]    (FULL-CONFIG view: 3 parallel cabinets per CDU, 3 blade groups each)
 └── centralEnergyPlant[1]
     ├── hotWaterLoop[1]      (EHX trains + HTWP pump trains + mixing volumes; internal, not RL-exposed)
     └── coolingTowerLoop[1]  (CTWP pump train + basin)
         └── coolingTower[1]  (2 cells in parallel)
 ```
 
-Each `computeBlock` models one CDU serving three parallel cabinets. The CDU connects to a facility hot water loop (primary side) and distributes cooled fluid to the cabinets (secondary side).
+> **⚠️ Compiled FMU vs full config — read this before counting cabinets/blade groups.** The tree above shows the **full ExaDigiT** physical layout. The **compiled sustain-lc FMU instantiates only `cabinet[1]` per block** (verified vs `modelDescription.xml`: no `cabinet[2]`/`cabinet[3]` inputs exist). So the as-compiled counts are **5 CDU blocks × 1 cabinet × 3 blade groups = 15 blade groups** — matching §1 ("3 blade groups per cabinet, 15 total"), NOT 5×3×3=45. The compiled FMU collapses the 3-physical-cabinets-per-CDU level into one representative cabinet and keeps that cabinet's 3 secondary-loop branches. A `computeBlock` is a **CDU group** (`S_CoolingBlock.mo`: `nCDUs=1` + a `cabinet[]` array), not a single rack — Frontier's 25 CDUs × ~3 cabinets ≈ its 74 physical cabinets, and a one-day-CSV column = one CDU group's aggregate power.
+
+Each `computeBlock` models one CDU; in full ExaDigiT it serves three parallel cabinets, but the compiled FMU keeps one. The CDU connects to a facility hot water loop (primary side) and distributes cooled fluid to the cabinet(s) (secondary side).
 
 ---
 
