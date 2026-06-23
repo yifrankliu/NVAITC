@@ -82,6 +82,8 @@ class Check:
     norm_dev: float    # signed normalized deviation from the point target (-> Q_faithful)
     target: float = 0.0  # the spec point value this stat should match (for comparison)
     feas_dev: float = 0.0  # normalized distance OUTSIDE the tolerance (-> Q_feasible); 0 if passing
+    bias: float | None = None    # per_rack_mean_dev only: signed mean % dev (systematic over/undershoot)
+    spread: float | None = None  # per_rack_mean_dev only: std of % devs across racks (sampling scatter)
 
     def __str__(self) -> str:
         mark = "pass" if self.passed else "fail"
@@ -137,12 +139,17 @@ def validate(P: np.ndarray, spec: str | Path | dict, dt: float = 15.0) -> Report
         vals = stats["per_rack_mean_W"]
         devs = (vals - targets) / targets
         worst = float(np.abs(devs).max())
+        bias = float(devs.mean())   # signed: + racks run high, - run low -> systematic over/undershoot
+        spread = float(devs.std())  # rack-to-rack scatter of the devs -> sampling-noise magnitude
         checks.append(Check(
-            "per_rack_mean", "relative", worst * 100,
-            f"max |dev| {worst*100:.1f}% <= {rel*100:.0f}%", worst <= rel,
+            "per_rack_mean_dev", "relative", worst * 100,
+            f"max|dev| {worst*100:.1f}% (bias {bias*100:+.1f}% +/- {spread*100:.1f}% sd) <= {rel*100:.0f}%",
+            worst <= rel,
             float(np.sqrt((devs ** 2).mean())),  # RMS rel dev -> Q_faithful
             target=0.0,  # value is a % deviation; 0% is the ideal
             feas_dev=max(0.0, worst - rel),  # excess beyond the +/-rel band
+            bias=bias * 100,      # stored as % to match the displayed value
+            spread=spread * 100,
         ))
 
     # --- total mean (relative) ---
