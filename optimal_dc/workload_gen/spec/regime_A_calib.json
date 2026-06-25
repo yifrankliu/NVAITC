@@ -46,8 +46,8 @@
   "job_size": {
     "family": "beta",
     "params": {
-      "a": 40.0,
-      "b": 1.5
+      "a": 200,
+      "b": 1
     }
   },
   "placement": "scattered",
