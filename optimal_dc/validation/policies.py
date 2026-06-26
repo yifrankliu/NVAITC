@@ -83,17 +83,21 @@ def make_schedule_policy(params, n_segments, n_steps):
 
 
 def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=15.0,
-                    stop_time=24 * 60 * 60, exogen_gen_v=1, infeasible_penalty=1e12,
+                    stop_time=None, exogen_gen_v=2, infeasible_penalty=1e12,
                     maxiter=10, seed=0, verbose=True):
     """Search a piecewise-constant schedule that minimizes E_cooling subject to the
     temperature constraint. Uses scipy.differential_evolution; each candidate costs a
-    FULL rollout, so keep n_segments and maxiter small at first. Returns
+    FULL rollout (a 120 h pass under v2), so keep n_segments and maxiter small at first
+    and parallelize the inner rollouts before scaling up. Returns
     (best_params, best_df, result).
 
     NOTE: untested end-to-end here (requires the FMU). Treat as a starting structure.
     """
     from scipy.optimize import differential_evolution
+    from rollout import full_pass_stop_time
 
+    if stop_time is None:
+        stop_time = full_pass_stop_time(exogen_gen_v, step_size)
     n_steps = int(stop_time // step_size)
     bounds = [(-1.0, 1.0)] * (3 * n_segments)
 

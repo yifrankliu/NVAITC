@@ -63,7 +63,28 @@ def _chdir(path):
         os.chdir(old)
 
 
-def make_env(stop_time=24 * 60 * 60, step_size=15.0, exogen_gen_v=1, subsample_rate=1):
+# input_04-07-24.csv is 5760 steps = 24 h @ 15 s. v2 folds the 25 CDU columns into the
+# 5-cabinet structure as 5 sequential time-blocks -> one full v2 pass is 5x longer (120 h).
+_BASE_PASS_STEPS = 5760
+
+
+def full_pass_stop_time(exogen_gen_v=2, step_size=15.0):
+    """Seconds for ONE full pass of the chosen exogenous pipeline (v1 -> 24 h, v2 -> 120 h)."""
+    folds = 5 if exogen_gen_v == 2 else 1
+    return _BASE_PASS_STEPS * folds * step_size
+
+
+def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1):
+    # PROJECT STANDARD is v2: every sustain-lc train/eval script overrides the constructor
+    # default (=1) to exogen_gen_v=2, so prize-sizing must use v2 for ΔE to be comparable
+    # to their baselines/agents.
+    # CAVEAT: v2 flattens load (softmax branch redistribution + 50-step mean filter) ->
+    # conservatively UNDERSTATES the load-following prize. The smoothing kernel (=50) is
+    # hardcoded in SmallFrontierModel's v2 call and not exposed via __init__; to probe the
+    # flattening effect, instantiate exogenous_variable_generator_2 directly with a smaller
+    # smoothing_kernel_size. See prize_sizing memory.
+    if stop_time is None:
+        stop_time = full_pass_stop_time(exogen_gen_v, step_size)
     with _chdir(_SUSTAIN):
         env = SmallFrontierModel(
             stop_time=stop_time,
@@ -72,6 +93,23 @@ def make_env(stop_time=24 * 60 * 60, step_size=15.0, exogen_gen_v=1, subsample_r
             subsample_rate=subsample_rate,
         )
     return env
+
+
+def exogenous_trace(exogen_gen_v=2):
+    """Return the processed exogenous array that would be fed to the FMU, WITHOUT running
+    it — for inspecting/plotting the v1 vs v2 preprocessing. Shape (T, 16): 15 branch
+    powers (5 cabinets x 3 branches; cabinet c = cols 3c:3c+3) + 1 wet-bulb column.
+    T = 5761 for v1, ~28805 for v2 (folded 5x)."""
+    from frontier_env import (exogenous_variable_generator,
+                              exogenous_variable_generator_2, EXOGENOUS_VAR_PATH)
+    with _chdir(_SUSTAIN):
+        if exogen_gen_v == 1:
+            gen = exogenous_variable_generator(EXOGENOUS_VAR_PATH)
+        elif exogen_gen_v == 2:
+            gen = exogenous_variable_generator_2(EXOGENOUS_VAR_PATH)
+        else:
+            raise ValueError("exogen_gen_v must be 1 or 2")
+    return np.asarray(gen.exogenous_var_final)
 
 
 def list_power_vars(env):
@@ -91,7 +129,7 @@ def _cabinet_temps_K(info):
     return np.array([info[k][0:3] for k in CABINET_KEYS], dtype=float)
 
 
-def run_policy(policy, *, stop_time=24 * 60 * 60, step_size=15.0, exogen_gen_v=1,
+def run_policy(policy, *, stop_time=None, step_size=15.0, exogen_gen_v=2,
                subsample_rate=1, name="policy"):
     """Run ONE independent rollout of `policy` over the real exogenous trace.
 
@@ -103,6 +141,8 @@ def run_policy(policy, *, stop_time=24 * 60 * 60, step_size=15.0, exogen_gen_v=1
     Returns a tidy per-step DataFrame: P_cooling_W, per-term W_<label>_W,
     T_cab_max_K, T_cab_mean_K. The env's own reward is ignored on purpose.
     """
+    if stop_time is None:
+        stop_time = full_pass_stop_time(exogen_gen_v, step_size)
     env = make_env(stop_time=stop_time, step_size=step_size,
                    exogen_gen_v=exogen_gen_v, subsample_rate=subsample_rate)
     obs = env.reset()
