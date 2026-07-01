@@ -43,15 +43,19 @@ def make_constant_policy(cdu_vec, ct_action=CT_NEUTRAL):
 
 
 # --------------------------------------------------------------------------------
-# BASELINE — "current practice": CT on the wetbulb+10°F rule (delta 0), CDU at nominal.
+# BASELINE (static-nominal) — the FMU's built-in nominal operation: CDU PID tracks the
+# FMU's nominal start setpoints, CT on the wetbulb+10°F rule (delta 0). The "no RL" bar.
+# Values SOURCED from modelDescription.xml `start` attributes (causality=input):
+#   Tsec_supply_nom_RL = 28.0 C  (range 20-40 -> a = 2*(28-20)/20   - 1 = -0.20)
+#   dp_nom_RL          = 27.5 psi (range 25-38 -> a = 2*(27.5-25)/13 - 1 = -0.615)
+#   Valve_Stpts        = 0.33/0.33/0.34 balanced -> a = 0.0 (env softmaxes to ~1/3 each)
 #
-# !! ASSUMPTION TO VERIFY !!  a=0 puts CDU setpoints at the *midpoint* of their ranges
-# (Tsec=30°C, dp=31.5psi, valves balanced). This is a PLACEHOLDER for "current practice".
-# If the real default operating point is colder/safer (e.g. low Tsec, high dp), set
-# BASELINE_CDU accordingly — the baseline choice directly sets the bar ΔE is measured
-# against. See prize_sizing memory (baseline definition).
+# CAVEAT: this STATIC-NOMINAL baseline is WEAKER than the LC-Opt paper's ASHRAE G36
+# "trim and respond" baseline (Appendix K of arXiv:2511.00116; not in released code), so
+# ΔE measured against it OVERSTATES the prize vs a good rule-based controller. For the
+# honest/comparable number, also implement G36 and report ΔE against both. See memory.
 # --------------------------------------------------------------------------------
-BASELINE_CDU = make_cdu_vec(tsec_a=0.0, dp_a=0.0, valve_a=0.0)
+BASELINE_CDU = make_cdu_vec(tsec_a=-0.20, dp_a=-0.615, valve_a=0.0)
 baseline_policy = make_constant_policy(BASELINE_CDU, ct_action=CT_NEUTRAL)
 
 

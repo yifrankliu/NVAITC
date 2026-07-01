@@ -74,6 +74,38 @@ def full_pass_stop_time(exogen_gen_v=2, step_size=15.0):
     return _BASE_PASS_STEPS * folds * step_size
 
 
+def _cyclic(arr):
+    """Infinite cyclic iterator over rows of a 2D array (matches frontier_env's exogenous iter)."""
+    while True:
+        for row in arr:
+            yield row
+
+
+def v0_exogenous(use_all_columns=False, clip_sigma=None, Towb_offset_in_K=15.0,
+                 nBranches=3, parallel_nCabinets=5):
+    """FAITHFUL exogenous trace = v1's structure MINUS the flattening: no mean+0.1sigma clip,
+    no branch time-rolls, no softmax/smoothing. Each cabinet's 3 branches = col/3 (equal), so
+    cabinet-total tracks the real CDU load (CV ~0.49). Same /parallel/branches magnitude as
+    v1/v2 so feasibility is comparable. Returns (T,16): 15 cabinet-major branch powers + wet-bulb.
+      use_all_columns=False -> first 5 CDU cols (24 h);  True -> fold all 25 (120 h).
+      clip_sigma=None -> no cap; e.g. 3.0 -> gentle +/-3 sigma cap of genuine spikes only."""
+    from frontier_env import EXOGENOUS_VAR_PATH
+    with _chdir(_SUSTAIN):
+        arr = pd.read_csv(EXOGENOUS_VAR_PATH).to_numpy()
+    ncdu = 25 if use_all_columns else 5
+    power = arr[:, 1:1 + ncdu].astype(float)
+    towb = arr[:, -1].astype(float) + 273.15 + Towb_offset_in_K
+    if clip_sigma is not None:                          # OPTIONAL gentle cap (NOT v1's +0.1 sigma)
+        m, s = power.mean(axis=0), power.std(axis=0)
+        power = np.clip(power, m - clip_sigma * s, m + clip_sigma * s)
+    power = power / parallel_nCabinets / nBranches       # same magnitude as v1
+    power = np.repeat(power, nBranches, axis=1)          # 3 EQUAL branches, NO roll
+    if use_all_columns:                                 # fold 25->5 sequential blocks (faithful)
+        power = np.concatenate([power[:, i:i + 15] for i in range(0, ncdu * nBranches, 15)], axis=0)
+        towb = np.repeat(towb, ncdu // 5)
+    return np.concatenate([power.round(2), towb.reshape(-1, 1)], axis=1)
+
+
 def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1):
     # PROJECT STANDARD is v2: every sustain-lc train/eval script overrides the constructor
     # default (=1) to exogen_gen_v=2, so prize-sizing must use v2 for ΔE to be comparable
@@ -83,15 +115,20 @@ def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1):
     # hardcoded in SmallFrontierModel's v2 call and not exposed via __init__; to probe the
     # flattening effect, instantiate exogenous_variable_generator_2 directly with a smaller
     # smoothing_kernel_size. See prize_sizing memory.
+    # exogen_gen_v=0 => faithful v0 (no clip/roll/softmax/smoothing; see v0_exogenous).
     if stop_time is None:
         stop_time = full_pass_stop_time(exogen_gen_v, step_size)
+    construct_v = exogen_gen_v if exogen_gen_v in (1, 2) else 1   # v0: build w/ v1, swap iterator below
     with _chdir(_SUSTAIN):
         env = SmallFrontierModel(
             stop_time=stop_time,
             step_size=step_size,
-            exogen_gen_v=exogen_gen_v,
+            exogen_gen_v=construct_v,
             subsample_rate=subsample_rate,
         )
+    if exogen_gen_v == 0:
+        trace = v0_exogenous(use_all_columns=False)[::subsample_rate]
+        env.iter_exogenous_var = _cyclic(trace)
     return env
 
 
@@ -99,7 +136,9 @@ def exogenous_trace(exogen_gen_v=2):
     """Return the processed exogenous array that would be fed to the FMU, WITHOUT running
     it — for inspecting/plotting the v1 vs v2 preprocessing. Shape (T, 16): 15 branch
     powers (5 cabinets x 3 branches; cabinet c = cols 3c:3c+3) + 1 wet-bulb column.
-    T = 5761 for v1, ~28805 for v2 (folded 5x)."""
+    T = 5761 for v1, ~28805 for v2 (folded 5x). v0 -> faithful (see v0_exogenous)."""
+    if exogen_gen_v == 0:
+        return v0_exogenous(use_all_columns=False)
     from frontier_env import (exogenous_variable_generator,
                               exogenous_variable_generator_2, EXOGENOUS_VAR_PATH)
     with _chdir(_SUSTAIN):
