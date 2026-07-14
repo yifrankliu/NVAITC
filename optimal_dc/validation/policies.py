@@ -112,8 +112,11 @@ def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=1
         s = summarize(df, T_max_K, step_size)
         if not s["feasible"]:
             # soft penalty proportional to overshoot so the optimizer is guided back
-            overshoot = float((df["T_cab_max_K"] - T_max_K).clip(lower=0).sum())
-            return s["E_cooling_J"] + infeasible_penalty * (1 + overshoot)
+            overshoot = float((df["T_cab_max_K"] - T_max_K).clip(lower=0).sum()) if len(df) else 0.0
+            # crashed runs (FMU flow-reversal assertion) carry E_cooling=NaN; score them
+            # on the penalty alone so NaN cannot poison differential_evolution
+            E = s["E_cooling_J"] if np.isfinite(s["E_cooling_J"]) else 0.0
+            return E + infeasible_penalty * (1 + overshoot)
         return s["E_cooling_J"]
 
     result = differential_evolution(objective, bounds, maxiter=maxiter, seed=seed,

@@ -23,6 +23,11 @@ import contextlib
 import numpy as np
 import pandas as pd
 
+try:
+    from pyfmi.exceptions import FMUException
+except ImportError:  # older pyfmi layouts
+    from pyfmi.fmi import FMUException
+
 # --- make the forked sustain-lc submodule importable (repo-relative, move-safe) ---
 _SUSTAIN = pathlib.Path(__file__).resolve().parent.parent / "external" / "sustain-lc"
 sys.path.insert(0, str(_SUSTAIN))
@@ -48,6 +53,11 @@ POWER_VARS = (
 POWER_LABELS = [f"CDUP_{k}" for k in range(1, 6)] + ["HTWP", "CTWP", "CT"]
 
 CABINET_KEYS = [f"cdu-cabinet-{k}" for k in range(1, 6)]
+
+# The FMU's initialization transient peaks at ~133 degC on the first step(s) and decays
+# within minutes, regardless of actions. Feasibility checks skip this warm-up window,
+# otherwise EVERY run (baseline included) would be marked infeasible.
+WARMUP_STEPS = 120  # x 15 s = 30 min
 
 
 @contextlib.contextmanager
@@ -179,6 +189,14 @@ def run_policy(policy, *, stop_time=None, step_size=15.0, exogen_gen_v=2,
 
     Returns a tidy per-step DataFrame: P_cooling_W, per-term W_<label>_W,
     T_cab_max_K, T_cab_mean_K. The env's own reward is ignored on purpose.
+
+    CRASH TOLERANCE: some operating points are hydraulically infeasible — the FMU is
+    compiled with allowFlowReversal=false on every fluid component, and e.g. minimum
+    pump dp can drive a cabinet branch flow through zero, tripping a hard Modelica
+    assertion. The FMU then enters an unrecoverable Error state and every get() raises
+    FMUException. We treat that as a legitimate outcome, not a harness failure: the
+    partial trajectory is returned with df.attrs['crashed']=True / ['crash_step']=i,
+    and summarize() maps it to feasible=False with E_cooling=NaN.
     """
     if stop_time is None:
         stop_time = full_pass_stop_time(exogen_gen_v, step_size)
@@ -188,11 +206,16 @@ def run_policy(policy, *, stop_time=None, step_size=15.0, exogen_gen_v=2,
     n_steps = int(stop_time // step_size)
 
     rows = []
+    crashed, crash_step = False, None
     for i in range(n_steps):
         t = i * step_size
         action = policy(obs, t, i)
-        obs, _reward, _done, info = env.step(action)   # reward deliberately discarded
-        p_terms = [float(np.ravel(v)[0]) for v in env.fmu.get(POWER_VARS)]
+        try:
+            obs, _reward, _done, info = env.step(action)   # reward deliberately discarded
+            p_terms = [float(np.ravel(v)[0]) for v in env.fmu.get(POWER_VARS)]
+        except FMUException:
+            crashed, crash_step = True, i
+            break
         temps = _cabinet_temps_K(info)
 
         row = {"policy": name, "step": i, "t_s": t, "P_cooling_W": float(np.sum(p_terms))}
@@ -201,7 +224,10 @@ def run_policy(policy, *, stop_time=None, step_size=15.0, exogen_gen_v=2,
         row["T_cab_mean_K"] = float(temps.mean())
         rows.append(row)
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df.attrs["crashed"] = crashed
+    df.attrs["crash_step"] = crash_step
+    return df
 
 
 def integrate_energy_J(df, step_size=15.0):
@@ -209,18 +235,32 @@ def integrate_energy_J(df, step_size=15.0):
     return float(df["P_cooling_W"].sum() * step_size)
 
 
-def feasible(df, T_max_K):
-    """True iff cabinet temps stay within the performance/safety limit for the whole run."""
-    return bool((df["T_cab_max_K"] <= T_max_K).all())
+def feasible(df, T_max_K, warmup_steps=WARMUP_STEPS):
+    """True iff the run did NOT crash the FMU and cabinet temps stay within the
+    performance/safety limit after the warm-up window (the action-independent
+    initialization transient would otherwise fail every run)."""
+    if df.attrs.get("crashed", False) or not len(df):
+        return False
+    post = df.loc[df["step"] >= warmup_steps, "T_cab_max_K"]
+    return bool((post <= T_max_K).all())
 
 
-def summarize(df, T_max_K, step_size=15.0):
-    """One-row summary of a rollout: energy, feasibility, peak temp."""
+def summarize(df, T_max_K, step_size=15.0, warmup_steps=WARMUP_STEPS):
+    """One-row summary of a rollout: energy, feasibility, peak temp (post warm-up).
+    Crashed runs get feasible=False and E_cooling=NaN — a partial-pass energy must
+    never be compared against full-pass energies."""
+    crashed = bool(df.attrs.get("crashed", False))
+    E = float("nan") if crashed else integrate_energy_J(df, step_size)
+    post = df.loc[df["step"] >= warmup_steps, "T_cab_max_K"]
+    t_max = float(post.max()) if len(post) else float("nan")
     return {
-        "policy": df["policy"].iloc[0],
-        "E_cooling_J": integrate_energy_J(df, step_size),
-        "E_cooling_kWh": integrate_energy_J(df, step_size) / 3.6e6,
-        "feasible": feasible(df, T_max_K),
-        "T_cab_max_K": float(df["T_cab_max_K"].max()),
-        "T_cab_margin_K": float(T_max_K - df["T_cab_max_K"].max()),
+        "policy": df["policy"].iloc[0] if len(df) else None,
+        "E_cooling_J": E,
+        "E_cooling_kWh": E / 3.6e6,
+        "feasible": feasible(df, T_max_K, warmup_steps),
+        "T_cab_max_K": t_max,
+        "T_cab_margin_K": T_max_K - t_max,
+        "crashed": crashed,
+        "crash_step": df.attrs.get("crash_step"),
+        "n_steps": int(len(df)),
     }
