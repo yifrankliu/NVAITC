@@ -88,14 +88,22 @@ def make_schedule_policy(params, n_segments, n_steps):
 
 def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=15.0,
                     stop_time=None, exogen_gen_v=2, infeasible_penalty=1e12,
-                    maxiter=10, seed=0, verbose=True):
+                    maxiter=10, popsize=15, seed=0, init_seeds=None,
+                    checkpoint_path="oracle_checkpoint.npz", verbose=True):
     """Search a piecewise-constant schedule that minimizes E_cooling subject to the
     temperature constraint. Uses scipy.differential_evolution; each candidate costs a
-    FULL rollout (a 120 h pass under v2), so keep n_segments and maxiter small at first
-    and parallelize the inner rollouts before scaling up. Returns
+    FULL rollout, so budget = popsize * 3*n_segments * (maxiter+1) rollouts. Returns
     (best_params, best_df, result).
 
-    NOTE: untested end-to-end here (requires the FMU). Treat as a starting structure.
+    popsize : DE population multiplier (scipy default 15 -> 270 rollouts/generation at
+        n_segments=6; use ~5 for an overnight run).
+    init_seeds : optional list of [tsec_a, dp_a, ct_continuous] triples; each is tiled
+        across all segments and injected into the initial population (rest random).
+        Seeding with the baseline + best feasible static guarantees ceiling >= floor
+        from generation zero.
+    checkpoint_path : best-so-far FEASIBLE candidate is saved here after every
+        generation (np.savez), so an interrupted run still yields a valid lower-bound
+        ceiling. Set None to disable.
     """
     from scipy.optimize import differential_evolution
     from rollout import full_pass_stop_time
@@ -103,13 +111,24 @@ def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=1
     if stop_time is None:
         stop_time = full_pass_stop_time(exogen_gen_v, step_size)
     n_steps = int(stop_time // step_size)
-    bounds = [(-1.0, 1.0)] * (3 * n_segments)
+    n_params = 3 * n_segments
+    bounds = [(-1.0, 1.0)] * n_params
+
+    best = {"E_cooling_J": np.inf, "params": None, "n_evals": 0}
+
+    def _save_checkpoint():
+        if checkpoint_path and best["params"] is not None:
+            np.savez(checkpoint_path, params=best["params"],
+                     E_cooling_J=best["E_cooling_J"], n_evals=best["n_evals"],
+                     n_segments=n_segments, exogen_gen_v=exogen_gen_v,
+                     stop_time=stop_time)
 
     def objective(params):
         pol = make_schedule_policy(params, n_segments, n_steps)
         df = run_policy(pol, stop_time=stop_time, step_size=step_size,
                         exogen_gen_v=exogen_gen_v, name="oracle_candidate")
         s = summarize(df, T_max_K, step_size)
+        best["n_evals"] += 1
         if not s["feasible"]:
             # soft penalty proportional to overshoot so the optimizer is guided back
             overshoot = float((df["T_cab_max_K"] - T_max_K).clip(lower=0).sum()) if len(df) else 0.0
@@ -117,11 +136,32 @@ def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=1
             # on the penalty alone so NaN cannot poison differential_evolution
             E = s["E_cooling_J"] if np.isfinite(s["E_cooling_J"]) else 0.0
             return E + infeasible_penalty * (1 + overshoot)
+        if s["E_cooling_J"] < best["E_cooling_J"]:
+            best["E_cooling_J"] = s["E_cooling_J"]
+            best["params"] = np.asarray(params, dtype=float).copy()
+            _save_checkpoint()   # save on every improvement: covers the initial-population
+                                 # evaluation and mid-generation crashes, not just gen ends
         return s["E_cooling_J"]
 
+    def _checkpoint(xk, convergence=None):
+        _save_checkpoint()
+        return False   # never request early termination
+
+    init = "latinhypercube"
+    if init_seeds:
+        rng = np.random.default_rng(seed)
+        n_pop = max(popsize * n_params, len(init_seeds), 5)
+        init = rng.uniform(-1.0, 1.0, size=(n_pop, n_params))
+        for i, triple in enumerate(init_seeds[:n_pop]):
+            init[i] = np.tile(np.asarray(triple, dtype=float), n_segments)
+
     result = differential_evolution(objective, bounds, maxiter=maxiter, seed=seed,
-                                    polish=False, disp=verbose)
-    best_pol = make_schedule_policy(result.x, n_segments, n_steps)
+                                    popsize=popsize, init=init, polish=False,
+                                    disp=verbose, callback=_checkpoint)
+    # prefer the best FEASIBLE candidate seen (result.x can be an infeasible/penalized
+    # point if the final population converged badly)
+    final_params = best["params"] if best["params"] is not None else result.x
+    best_pol = make_schedule_policy(final_params, n_segments, n_steps)
     best_df = run_policy(best_pol, stop_time=stop_time, step_size=step_size,
                          exogen_gen_v=exogen_gen_v, name="oracle")
-    return result.x, best_df, result
+    return final_params, best_df, result
