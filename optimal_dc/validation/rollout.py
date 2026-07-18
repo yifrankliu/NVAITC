@@ -253,6 +253,10 @@ def summarize(df, T_max_K, step_size=15.0, warmup_steps=WARMUP_STEPS):
     E = float("nan") if crashed else integrate_energy_J(df, step_size)
     post = df.loc[df["step"] >= warmup_steps, "T_cab_max_K"]
     t_max = float(post.max()) if len(post) else float("nan")
+    # LC-Opt's soft compliance band (D_blade, U_T = 40 C; arXiv:2511.00116) — reported
+    # for paper comparability, NOT a feasibility gate. Conservative variant: % of steps
+    # with ALL cabinets <= 40 C (T_cab_max is the max across cabinets).
+    d40 = float((post <= 273.15 + 40.0).mean() * 100) if len(post) else float("nan")
     return {
         "policy": df["policy"].iloc[0] if len(df) else None,
         "E_cooling_J": E,
@@ -260,6 +264,7 @@ def summarize(df, T_max_K, step_size=15.0, warmup_steps=WARMUP_STEPS):
         "feasible": feasible(df, T_max_K, warmup_steps),
         "T_cab_max_K": t_max,
         "T_cab_margin_K": T_max_K - t_max,
+        "D40_pct": d40,
         "crashed": crashed,
         "crash_step": df.attrs.get("crash_step"),
         "n_steps": int(len(df)),
