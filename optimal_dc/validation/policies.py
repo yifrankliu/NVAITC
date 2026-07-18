@@ -88,7 +88,7 @@ def make_schedule_policy(params, n_segments, n_steps):
 
 def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=15.0,
                     stop_time=None, exogen_gen_v=2, infeasible_penalty=1e12,
-                    maxiter=10, popsize=15, seed=0, init_seeds=None,
+                    maxiter=10, popsize=15, seed=0, init_seeds=None, E_ref=None,
                     checkpoint_path="oracle_checkpoint.npz", verbose=True):
     """Search a piecewise-constant schedule that minimizes E_cooling subject to the
     temperature constraint. Uses scipy.differential_evolution; each candidate costs a
@@ -104,6 +104,10 @@ def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=1
     checkpoint_path : best-so-far FEASIBLE candidate is saved here after every
         generation (np.savez), so an interrupted run still yields a valid lower-bound
         ceiling. Set None to disable.
+    E_ref : optional reference energy (J), e.g. the baseline's. Feasible-by-temperature
+        candidates whose energy falls outside (0, 5*E_ref) are treated as numerically
+        pathological (garbage W_flow regimes observed in warm-corner runs) and scored
+        with the infeasible penalty instead of their fake energy.
     """
     from scipy.optimize import differential_evolution
     from rollout import full_pass_stop_time
@@ -136,6 +140,9 @@ def optimize_oracle(run_policy, summarize, *, n_segments=6, T_max_K, step_size=1
             # on the penalty alone so NaN cannot poison differential_evolution
             E = s["E_cooling_J"] if np.isfinite(s["E_cooling_J"]) else 0.0
             return E + infeasible_penalty * (1 + overshoot)
+        if E_ref is not None and not (0.0 < s["E_cooling_J"] < 5.0 * E_ref):
+            # numerically pathological: feasible by temperature but garbage energy
+            return infeasible_penalty
         if s["E_cooling_J"] < best["E_cooling_J"]:
             best["E_cooling_J"] = s["E_cooling_J"]
             best["params"] = np.asarray(params, dtype=float).copy()
