@@ -7,6 +7,8 @@ and compares them to the FROZEN spec (`spec/regime_A.json`). It returns both:
   - a scalar `distance` = the MSM objective  Q = sum_i ((s_i - target_i)/target_i)^2
     that the calibration search minimizes.
 
+    //
+
 So this single module is the `||s(generate(theta)) - s(real)||` in
     theta* = argmin_theta || s(generate(theta)) - s(real) ||
 and the ABC accept test (tolerances = per-stat epsilon). See the calibration
