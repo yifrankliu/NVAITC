@@ -785,9 +785,9 @@
     "total_std_W": 7901093.43426922
   },
   "envelope": {
-    "capacity_W": 27700000.0,
-    "source": "Frontier2023 sheet, data/Frontier HPC & Facility Data.xlsx (max Frontier Compute Power)",
-    "note": "physical ceiling for the machine; formalized by envelope.py in Phase 2"
+    "capacity_W": 27699000.0,
+    "source": "spec/envelope.json (envelope.py) when built, else pinned fallback; Frontier2023 sheet max",
+    "note": "physical ceiling for the machine; owned by envelope.py"
   },
   "tolerances": {
     "per_rack_mean": {
@@ -845,7 +845,7 @@
     },
     "total_max": {
       "kind": "ceiling",
-      "max": 27700000.0,
+      "max": 27699000.0,
       "note": "peak must respect the machine's physical capacity (2023 envelope max)"
     }
   }

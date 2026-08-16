@@ -118,6 +118,36 @@ class WorkloadConfig:
     """Arrival clustering beyond Poisson. 0.0 = pure Poisson (regime A). Reserved
     for regime B (e.g. Hawkes / negative-binomial arrivals); a no-op while 0."""
 
+    # --- (A) scheduling discipline: capacity is a hard constraint ---
+    discipline: str = "queue"
+    """How a job that cannot get its racks is handled: 'queue' (FCFS delay --
+    what Slurm does; work-conserving, so busy_frac = lambda*E[frac]*E[d] holds
+    for offered load < 1) or 'loss' (drop; Erlang-B: busy_frac = a/(1+a)).
+    Blocking, not clipping: power is always the sum of jobs actually running."""
+
+    # --- (B) intra-job dynamics (shapes need job-level priors; seeded from day) ---
+    ramp_time_s: float = 75.0
+    """Job power ramp-up/-down time (seconds) at start/end. Flat pulses are
+    impossible: a 756 kW single-step edge exceeds the day's per-rack ramp max
+    (664 kW). Seeded so edge slew ~ p/R hits the day's rack-ramp p99 ~142 kW:
+    R = 756/142 ~ 5 steps ~ 75 s."""
+
+    wander_std_W: float = 38000.0
+    """Stationary std (W) of the within-job AR(1) power wander around p_j.
+    Seeded from rack_ramp_abs_mean: E|dP| = busy_frac*sqrt(2/pi)*sigma_step ->
+    sigma_step ~ 17 kW; sigma_x = sigma_step/sqrt(2(1-phi)) ~ 38 kW at phi=0.9."""
+
+    wander_phi: float = 0.9
+    """AR(1) coefficient per 15 s step of the within-job wander (persistence)."""
+
+    # --- (C) co-placement / synchronization, forward-synthesized to spec ---
+    wander_shared_frac: float = 0.6
+    """Fraction of wander VARIANCE shared across all of a job's racks (gang-
+    synchronized MPI phases move a job's nodes together). With co-timed ramp
+    edges this is the ramp_sync_ratio knob: fully shared -> ratio ~ E[k],
+    fully idiosyncratic -> ~ sqrt(k). Day target: 17.7 (between sqrt(25)=5
+    and 25)."""
+
     # --- (C) co-placement / synchronization, forward-synthesized to spec ---
     job_size: DistSpec = field(
         default_factory=lambda: DistSpec("beta", {"a": 40.0, "b": 1.5})
@@ -149,6 +179,18 @@ class WorkloadConfig:
             raise ValueError(
                 f"placement must be 'scattered' or 'contiguous', got {self.placement!r}"
             )
+        if self.discipline not in ("queue", "loss"):
+            raise ValueError(
+                f"discipline must be 'queue' or 'loss', got {self.discipline!r}"
+            )
+        if self.ramp_time_s < 0:
+            raise ValueError("ramp_time_s must be >= 0")
+        if self.wander_std_W < 0:
+            raise ValueError("wander_std_W must be >= 0")
+        if not (0.0 <= self.wander_phi < 1.0):
+            raise ValueError("wander_phi must be in [0, 1) (stationary AR(1))")
+        if not (0.0 <= self.wander_shared_frac <= 1.0):
+            raise ValueError("wander_shared_frac must be in [0, 1]")
         if not self.per_rack_scale or any(s <= 0 for s in self.per_rack_scale):
             raise ValueError("per_rack_scale must be non-empty and all > 0")
         for name in _DIST_FIELDS:
@@ -170,6 +212,8 @@ class WorkloadConfig:
     def from_json(cls, path: str | Path) -> "WorkloadConfig":
         """Load a regime config, reconstructing the nested DistSpec fields."""
         data = json.loads(Path(path).read_text(encoding="utf-8"))
+        # keys starting with "_" are metadata (e.g. calibrate.py's _provenance)
+        data = {k: v for k, v in data.items() if not k.startswith("_")}
         for name in _DIST_FIELDS:
             if name in data and isinstance(data[name], dict):
                 data[name] = DistSpec(**data[name])
@@ -194,10 +238,13 @@ class WorkloadConfig:
         grand_mean = float(marg["grand_mean_W"])
         job_power_mean = busy - floor
 
-        # E[d] ~= tau (1/e autocorrelation), converted steps -> seconds.
+        # E[d] from tau with the flat-pulse ACF correction: the M/G/inf ACF is
+        # rho(u) = E[(d-u)+]/E[d], and rho = 1/e at u ~= 0.47*E[d] for lognormal
+        # sigma=0.7 (NOT at E[d]; that holds only for exponential d). Verified
+        # live: measured tau 81 vs seeded E[d]/dt 174 -> ratio 0.466.
         tau_steps = float(spec["temporal"]["autocorr_1e_tau_steps"])
         dt_s = float(spec["meta"]["dt_s"])
-        mean_dur_s = tau_steps * dt_s  # 174 * 15 = 2610 s
+        mean_dur_s = tau_steps * dt_s / 0.47  # 174 * 15 / 0.47 ~= 5553 s
         # lognormal placeholder shape (sigma is bucket B; refine from PM100).
         sigma = 0.7
         mu = math.log(mean_dur_s) - sigma ** 2 / 2.0
@@ -206,12 +253,14 @@ class WorkloadConfig:
         a_size, b_size = 40.0, 1.5
         frac_mean = a_size / (a_size + b_size)  # E[job_size_frac] ~= 0.964
 
-        # Seed arrival rate from the MEAN constraint, NOT busy-fraction. The M/G/inf
-        # mean is  E[power_r] = floor + occupancy * job_power_mean, so to hit
-        # grand_mean we need occupancy = (grand_mean - floor) / job_power_mean; and
-        # per-rack occupancy = lambda * E[job_size_frac] * E[d]. (Deriving lambda from
-        # busy-fraction = 0.5 -> ln2 instead overshoots the mean by ~18%; the mean
-        # and busy-fraction constraints are not mutually consistent under this model.)
+        # Seed arrival rate from the MEAN constraint. Under the QUEUE discipline
+        # the system is work-conserving (delivered = offered for load < 1), so
+        # the M/G/inf identity survives blocking:
+        #   E[power_r] = floor + busy_frac * job_power_mean
+        #   busy_frac  = lambda * E[job_size_frac] * E[d]
+        # -> lambda = busy_frac_target / (E[frac] * E[d]). (Under 'loss' the
+        # Erlang-B correction busy_frac = a/(1+a) applies instead and lambda
+        # must be ~2x larger; calibrate.py re-derives per discipline.)
         occupancy = (grand_mean - floor) / job_power_mean
         lam = occupancy / (frac_mean * mean_dur_s)
 
@@ -222,7 +271,9 @@ class WorkloadConfig:
             arrival_rate_per_s=lam,
             duration=DistSpec("lognormal", {"mu": mu, "sigma": sigma}),
             burstiness=0.0,
+            discipline="queue",
             job_size=DistSpec("beta", {"a": a_size, "b": b_size}),  # mean ~0.96 -> near full-machine
             placement="scattered",
-            noise_amp_W=0.0,
+            noise_amp_W=2000.0,  # demoted: sensor-scale residual only; ramps now
+                                 # come from job dynamics (guarded by the v2 checks)
         )

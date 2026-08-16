@@ -41,8 +41,17 @@ from .validate import compute_stats
 # Physical capacity ceiling: max of 'Frontier Compute Power', sheet Frontier2023
 # of data/Frontier HPC & Facility Data.xlsx (49869 rows @ 10 min, full 2023).
 # Distribution there: p01 6.87 / p50 10.99 / p99 21.68 / max 27.70 MW.
-# envelope.py (Phase 2) will own this number; until then it is pinned here.
+# OWNED by envelope.py (spec/envelope.json); this constant is only the fallback
+# when the envelope has not been built yet.
 CAPACITY_W = 27.70e6
+_ENVELOPE = Path(__file__).parent / "spec" / "envelope.json"
+
+
+def _capacity_W() -> float:
+    """Capacity from spec/envelope.json when built, else the pinned fallback."""
+    if _ENVELOPE.is_file():
+        return float(json.loads(_ENVELOPE.read_text(encoding="utf-8"))["capacity_W"])
+    return CAPACITY_W
 
 _DEFAULT_CSV = Path(__file__).parents[1] / "external" / "sustain-lc" / "input_04-07-24.csv"
 _DEFAULT_OUT = Path(__file__).parent / "spec" / "regime_A.json"
@@ -61,8 +70,11 @@ def load_day_csv(path: str | Path) -> tuple[np.ndarray, float]:
     return P, dt
 
 
-def build_spec(P: np.ndarray, dt_s: float, source_csv: str, date: str) -> dict:
+def build_spec(P: np.ndarray, dt_s: float, source_csv: str, date: str,
+               capacity_W: float | None = None) -> dict:
     """Assemble the frozen spec dict from the real trace."""
+    if capacity_W is None:
+        capacity_W = _capacity_W()
     n_steps, n_racks = P.shape
     s = compute_stats(P, dt_s)  # the shared convention path
 
@@ -134,9 +146,9 @@ def build_spec(P: np.ndarray, dt_s: float, source_csv: str, date: str) -> dict:
             "total_std_W": s["total_std_W"],
         },
         "envelope": {
-            "capacity_W": CAPACITY_W,
-            "source": "Frontier2023 sheet, data/Frontier HPC & Facility Data.xlsx (max Frontier Compute Power)",
-            "note": "physical ceiling for the machine; formalized by envelope.py in Phase 2",
+            "capacity_W": capacity_W,
+            "source": "spec/envelope.json (envelope.py) when built, else pinned fallback; Frontier2023 sheet max",
+            "note": "physical ceiling for the machine; owned by envelope.py",
         },
         # committed judgment of "what counts as faithful" -- every key here maps
         # to one check in validate._check_stats
@@ -168,7 +180,7 @@ def build_spec(P: np.ndarray, dt_s: float, source_csv: str, date: str) -> dict:
                 "note": "0.5x-2x of the day's tau=174 steps (trend-inflated upper bound)",
             },
             "total_max": {
-                "kind": "ceiling", "max": CAPACITY_W,
+                "kind": "ceiling", "max": capacity_W,
                 "note": "peak must respect the machine's physical capacity (2023 envelope max)",
             },
         },
