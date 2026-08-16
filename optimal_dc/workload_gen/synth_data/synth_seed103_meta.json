@@ -1,0 +1,51 @@
+{
+  "name": "synth_seed103",
+  "seed": 103,
+  "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A_calib.json",
+  "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A.json",
+  "n_steps": 5761,
+  "n_racks": 25,
+  "dt_s": 15.0,
+  "wetbulb_source": "input_04-07-24.csv (sourced, not synthesized)",
+  "realized": {
+    "total_mean_MW": 16.81736641967234,
+    "total_max_MW": 26.247306640079035,
+    "total_std_MW": 9.2471213636206
+  },
+  "validation": {
+    "trace_tier_pass": true,
+    "failed_checks": [
+      "pooled_mix_dev"
+    ]
+  },
+  "scheduling": {
+    "n_arrived": 16,
+    "n_dropped": 0,
+    "loss_rate": 0.0,
+    "utilization": 0.5624615551394251,
+    "offered_load": 0.5631377546853418,
+    "wait_mean_s": 1478.6184811166731,
+    "wait_p95_s": 5856.77920002089,
+    "slowdown_mean": 1.7552164231651473
+  },
+  "disaggregation": {
+    "divisor": 15,
+    "convention": "compat_v0 (/15, sustain-lc lineage)",
+    "columns": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "slice_mode": "first5",
+    "branch_split": "equal",
+    "towb_offset_K": 15.0,
+    "warning": "never compare /9 results against /15 results"
+  },
+  "mean_band_MW": [
+    15.0,
+    17.3
+  ],
+  "seeds_tried": 4
+}

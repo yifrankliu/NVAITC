@@ -1,7 +1,7 @@
 """Job-superposition core for the Frontier workload synthesizer.
 
 `generate()` produces per-rack COMPUTE POWER only -- a `(n_steps, n_racks)`
-array in watts. It does NOT source weather (wet-bulb is joined later in cli.py)
+array in watts. It does NOT source weather (wet-bulb is joined in deliver.py)
 and does NOT disaggregate to FMU channels (disaggregator.py). It is also trace-
 agnostic: external HPC priors (PM100/PWA) enter by setting the `DistSpec` knobs
 in the WorkloadConfig, never by reaching into a trace here.

@@ -45,7 +45,7 @@ from .validate import load_spec, validate_ensemble, pass_rate
 _SPEC = Path(__file__).parent / "spec" / "regime_A.json"
 _OUT = Path(__file__).parent / "spec" / "regime_A_calib.json"
 
-N_SEEDS = 20                 # CRN ensemble size per objective eval
+N_SEEDS = 32                 # CRN ensemble size per objective eval (raised 20->32: 20 was few enough for DE to overfit seed quirks -- CRN 80% vs fresh 40%)
 GATE_SEEDS = range(1000, 1040)   # fresh seeds for the ship gate (out-of-sample)
 LAMBDA_HORIZON_BOOST = 1.10  # delivered/offered shortfall at start theta (~0.49/0.547)
 
@@ -112,7 +112,7 @@ def _objective(x: np.ndarray, spec: dict, seeds: range) -> float:
     rep = validate_ensemble(traces, spec)
     rate, _ = pass_rate(traces, spec)
     return (rep.distance_feasible + 0.01 * rep.distance_faithful
-            + max(0.0, 0.8 - rate) ** 2)
+            + 4.0 * max(0.0, 0.95 - rate) ** 2)  # strong gate pressure (DE#4): tau/corr per-seed scatter is the binding constraint; pay for centering tau~180 / corr~0.993
 
 
 def starting_theta(spec: dict) -> np.ndarray:
@@ -133,7 +133,7 @@ def calibrate(quick: bool = False, out_path: str | Path = _OUT) -> WorkloadConfi
 
     # init population = latin hypercube + the analytic starting point
     popsize = 3 if quick else 8
-    maxiter = 8 if quick else 60
+    maxiter = 8 if quick else 80
     rng = np.random.default_rng(0)
     n_pop = popsize * len(BOUNDS)
     init = rng.uniform([b[0] for b in lo_hi], [b[1] for b in lo_hi],

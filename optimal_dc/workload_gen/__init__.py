@@ -9,8 +9,10 @@ Public API:
     validate, compute_stats        -- per-trace accept test + stats      [validate.py]
     validate_ensemble, pass_rate   -- MSM objective + shipping gate      [validate.py]
     freeze                         -- re-freeze the spec from the day    [freeze.py]
+    disaggregate                   -- (T,25) -> FMU exogenous (/9|/15)   [disaggregator.py]
     calibrate                      -- MSM/DE search -> calib JSON        [calibrate.py]
     build_envelope                 -- year xlsx -> spec/envelope.json    [envelope.py]
+    deliver                        -- delivery: CSV + .npy + sidecar     [deliver.py]
                                       (envelope/calibrate import lazily -- heavy deps)
 
 Typical use:
@@ -27,6 +29,7 @@ from .config import WorkloadConfig, DistSpec
 from .generator import generate, job_metrics
 from .validate import validate, validate_ensemble, pass_rate, compute_stats
 from .freeze import freeze
+from .disaggregator import disaggregate
 
 __all__ = [
     "WorkloadConfig",
@@ -38,6 +41,7 @@ __all__ = [
     "pass_rate",
     "compute_stats",
     "freeze",
+    "disaggregate",
 ]
 
 # calibrate.py (scipy) and envelope.py (pandas/openpyxl) are import-on-demand:
