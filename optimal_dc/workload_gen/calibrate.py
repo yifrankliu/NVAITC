@@ -99,13 +99,20 @@ def _encode(cfg_values: dict) -> np.ndarray:
 
 
 def _objective(x: np.ndarray, spec: dict, seeds: range) -> float:
+    """Ensemble feasibility + faithfulness tie-break + trace-tier gate shortfall.
+
+    The gate term (squared shortfall below the 0.8 target, weight 1.0) makes DE
+    optimize the actual ship criterion, not only the ensemble bias -- CRN keeps
+    the rate deterministic per theta so the term is a valid objective."""
     try:
         cfg = _theta_to_config(x, spec)
     except ValueError:          # e.g. job_size mean out of (0,1] at extreme a/b
         return 1e6
     traces = [generate(cfg, seed=s) for s in seeds]
     rep = validate_ensemble(traces, spec)
-    return rep.distance_feasible + 0.01 * rep.distance_faithful
+    rate, _ = pass_rate(traces, spec)
+    return (rep.distance_feasible + 0.01 * rep.distance_faithful
+            + max(0.0, 0.8 - rate) ** 2)
 
 
 def starting_theta(spec: dict) -> np.ndarray:
@@ -151,20 +158,26 @@ def calibrate(quick: bool = False, out_path: str | Path = _OUT) -> WorkloadConfi
 
     cfg = _theta_to_config(res.x, spec)
 
-    # ship gate on FRESH seeds (out-of-sample w.r.t. the CRN search seeds)
+    # ship gate on FRESH seeds (out-of-sample w.r.t. the CRN search seeds):
+    # ensemble report must pass BOTH tiers on averaged stats, AND >= 80% of
+    # individual traces must pass every trace-tier (shape/dynamics) check
     gate_traces = [generate(cfg, seed=s) for s in GATE_SEEDS]
     rep = validate_ensemble(gate_traces, spec)
     rate, _ = pass_rate(gate_traces, spec)
+    ship = rep.passed and rate >= 0.8
     print(res.message)
     print(f"search Q = {res.fun:.5g} after {res.nfev} evals, {time.time()-t0:.0f}s")
     print(rep)
-    print(f"ship gate: pass rate {rate*100:.0f}% on {len(gate_traces)} fresh seeds "
-          f"(gate >= 80%): {'SHIP' if rate >= 0.8 else 'NOT YET'}")
+    print(f"ship gate: ensemble {'pass' if rep.passed else 'FAIL'} + trace-tier "
+          f"pass rate {rate*100:.0f}% on {len(gate_traces)} fresh seeds "
+          f"(need both, rate >= 80%): {'SHIP' if ship else 'NOT YET'}")
 
     data = json.loads(json.dumps(  # plain-dict round trip of the dataclass
         cfg.__dict__, default=lambda o: o.__dict__))
     data["_provenance"] = {
-        "method": "MSM via scipy differential_evolution (CRN, lambda pinned to mean)",
+        "method": ("MSM via scipy differential_evolution (CRN, lambda pinned to mean, "
+                   "two-tier acceptance: level=ensemble bias, shape/dynamics=per-trace)"),
+        "ship": ship,
         "date": "2026-08-16",
         "spec": str(_SPEC.name),
         "n_seeds_objective": N_SEEDS,

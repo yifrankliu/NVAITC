@@ -151,36 +151,62 @@ def build_spec(P: np.ndarray, dt_s: float, source_csv: str, date: str,
             "note": "physical ceiling for the machine; owned by envelope.py",
         },
         # committed judgment of "what counts as faithful" -- every key here maps
-        # to one check in validate._check_stats
+        # to one check in validate._check_stats.
+        # TWO-TIER ACCEPTANCE (decided 2026-08-16): "tier" says where a check
+        # applies. "trace" = every generated day must pass it individually
+        # (shape/dynamics -- what the control experiments consume). "ensemble" =
+        # checked on seed-averaged stats only (level = calibrated BIAS): with
+        # ~26 near-full-machine jobs/day the per-seed daily-mean CV is ~21%,
+        # while REAL 2023 operational daily means scatter CV~15% -- demanding
+        # per-seed level replication would be stricter than the real machine's
+        # own day-to-day variability.
         "tolerances": {
-            "per_rack_mean": {"kind": "relative", "rel": 0.05},
-            "total_mean": {"kind": "relative", "rel": 0.07},
-            "pooled_quantiles": {
-                "kind": "relative_vector", "rel": [0.08, 0.25, 0.25, 0.25, 0.08],
-                "note": ("p5/p95 pin the idle/busy mode POSITIONS tightly; "
-                         "mid-quantiles encode the occupancy mixing fraction and are "
-                         "looser because they are unstable for a bimodal marginal"),
+            "per_rack_mean": {
+                "kind": "relative", "rel": 0.05, "tier": "ensemble",
+                "note": "level stat -> bias test on the ensemble mean (see tier note above)",
             },
-            "pc1_var_share": {"kind": "floor", "min": 0.98},
-            "total_ramp_excess_kurtosis": {"kind": "floor", "min": 15},
-            "rack_ramp_excess_kurtosis": {"kind": "floor", "min": 50},
+            "total_mean": {
+                "kind": "relative", "rel": 0.07, "tier": "ensemble",
+                "note": "level stat -> bias test on the ensemble mean (see tier note above)",
+            },
+            "pooled_modes": {
+                "kind": "relative_vector", "rel": [0.08, 0.08], "pcts": [5, 95],
+                "tier": "trace",
+                "note": ("idle/busy mode POSITIONS (p5/p95 of the pooled marginal) = "
+                         "hardware shape -- must hold on every trace"),
+            },
+            "pooled_mix": {
+                "kind": "relative_vector", "rel": [0.25, 0.25, 0.25], "pcts": [25, 50, 75],
+                "tier": "ensemble",
+                "note": ("mixing quantiles (p25/p50/p75) track the day's occupancy "
+                         "level -> same realization scatter as the mean -> ensemble tier"),
+            },
+            "pc1_var_share": {"kind": "floor", "min": 0.98, "tier": "trace"},
+            "total_ramp_excess_kurtosis": {"kind": "floor", "min": 15, "tier": "trace"},
+            "rack_ramp_excess_kurtosis": {"kind": "floor", "min": 50, "tier": "trace"},
             "rack_ramp_abs_mean": {
-                "kind": "relative", "rel": 0.5,
+                "kind": "relative", "rel": 0.5, "tier": "trace",
                 "note": ("order-of-magnitude guard on per-rack ramp level -- kills "
                          "white-noise ramp faking; total ramp level is implied by "
                          "rack level x sync ratio, so it has no separate check"),
             },
             "ramp_sync_ratio": {
-                "kind": "band", "lo": 10.0, "hi": 25.0,
+                "kind": "band", "lo": 10.0, "hi": 25.0, "tier": "trace",
                 "note": "sqrt(25)=5 if racks jump independently, 25 lockstep; day = 17.7",
             },
-            "offdiag_corr_mean": {"kind": "band", "lo": 0.95, "hi": 0.999},
+            "offdiag_corr_mean": {
+                "kind": "band", "lo": 0.98, "hi": 0.999, "tier": "trace",
+                "note": ("lo RAISED 0.95->0.98 (2026-08-16) for consistency with the "
+                         "pc1 floor: rank-1 identity pc1 ~ (1+24*corr)/25 means "
+                         "pc1>=0.98 <=> corr>=0.979; the old lo admitted configs "
+                         "the pc1 floor rejects. Day value 0.994."),
+            },
             "autocorr_tau": {
-                "kind": "band", "lo": 87, "hi": 348,
+                "kind": "band", "lo": 87, "hi": 348, "tier": "trace",
                 "note": "0.5x-2x of the day's tau=174 steps (trend-inflated upper bound)",
             },
             "total_max": {
-                "kind": "ceiling", "max": capacity_W,
+                "kind": "ceiling", "max": capacity_W, "tier": "trace",
                 "note": "peak must respect the machine's physical capacity (2023 envelope max)",
             },
         },

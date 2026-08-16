@@ -131,12 +131,14 @@ class Check:
     norm_dev: float    # signed normalized deviation from the point target (-> Q_faithful)
     target: float = 0.0  # the spec point value this stat should match (for comparison)
     feas_dev: float = 0.0  # normalized distance OUTSIDE the tolerance (-> Q_feasible); 0 if passing
+    tier: str = "trace"  # "trace" = every generated day individually; "ensemble" = seed-averaged only
     bias: float | None = None    # vector checks only: signed mean % dev (systematic over/undershoot)
     spread: float | None = None  # vector checks only: std of % devs (sampling scatter)
 
     def __str__(self) -> str:
         mark = "pass" if self.passed else "fail"
-        return (f"  [{mark}] {self.name:<26} = {self.value:< 12.5g}  "
+        t = "T" if self.tier == "trace" else "E"
+        return (f"  [{mark}|{t}] {self.name:<26} = {self.value:< 12.5g}  "
                 f"target {self.target:< 12.5g}  ({self.bound})")
 
 
@@ -150,7 +152,15 @@ class Report:
 
     @property
     def passed(self) -> bool:
+        """ALL checks -- meaningful on an ensemble report (both tiers apply to
+        seed-averaged stats). On a single trace, use `passed_trace` instead:
+        ensemble-tier (level) checks are not per-trace promises."""
         return all(c.passed for c in self.checks)
+
+    @property
+    def passed_trace(self) -> bool:
+        """Trace-tier checks only -- the per-trace acceptance criterion."""
+        return all(c.passed for c in self.checks if c.tier == "trace")
 
     @property
     def distance(self) -> float:
@@ -183,6 +193,9 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
     tol = spec["tolerances"]
     checks: list[Check] = []
 
+    def _tier(key: str) -> str:
+        return tol[key].get("tier", "trace")
+
     # --- per-rack mean (vector relative check) ---
     if "per_rack_mean" in tol:
         rel = tol["per_rack_mean"]["rel"]
@@ -199,6 +212,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             float(np.sqrt((devs ** 2).mean())),  # RMS rel dev -> Q_faithful
             target=0.0,  # value is a % deviation; 0% is the ideal
             feas_dev=max(0.0, worst - rel),
+            tier=_tier("per_rack_mean"),
             bias=bias * 100,
             spread=spread * 100,
         ))
@@ -214,26 +228,33 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             f"{val/1e6:.2f} MW vs {target/1e6:.2f} +/-{rel*100:.0f}%", abs(d) <= rel, d,
             target=target,
             feas_dev=max(0.0, abs(d) - rel),
+            tier=_tier("total_mean"),
         ))
 
-    # --- pooled normalized quantiles (vector, per-quantile tolerance) ---
-    if "pooled_quantiles" in tol:
-        rels = np.asarray(tol["pooled_quantiles"]["rel"])
-        targets = np.asarray(spec["marginal"]["pooled_norm_quantiles_W"])
-        vals = np.asarray(stats["pooled_norm_quantiles_W"])
+    # --- pooled normalized quantiles, split by role (vector checks) ---
+    # pooled_modes: idle/busy mode positions (p5/p95) -- hardware shape
+    # pooled_mix:   mixing quantiles (p25/p50/p75)    -- occupancy level
+    spec_pcts = list(spec["marginal"]["pooled_norm_quantiles_pct"])
+    for key in ("pooled_modes", "pooled_mix"):
+        if key not in tol:
+            continue
+        rels = np.asarray(tol[key]["rel"])
+        idx = [spec_pcts.index(p) for p in tol[key]["pcts"]]
+        targets = np.asarray(spec["marginal"]["pooled_norm_quantiles_W"])[idx]
+        vals = np.asarray(stats["pooled_norm_quantiles_W"])[idx]
         devs = (vals - targets) / targets
         excess = np.abs(devs) - rels             # per-quantile distance beyond its band
         worst = float(excess.max())
         worst_i = int(np.argmax(excess))
-        pcts = spec["marginal"]["pooled_norm_quantiles_pct"]
         checks.append(Check(
-            "pooled_quantiles_dev", "relative_vector", float(np.abs(devs).max()) * 100,
-            f"worst p{pcts[worst_i]}: {vals[worst_i]/1e6:.2f} MW vs {targets[worst_i]/1e6:.2f} "
-            f"+/-{rels[worst_i]*100:.0f}%",
+            f"{key}_dev", "relative_vector", float(np.abs(devs).max()) * 100,
+            f"worst p{tol[key]['pcts'][worst_i]}: {vals[worst_i]/1e6:.2f} MW vs "
+            f"{targets[worst_i]/1e6:.2f} +/-{rels[worst_i]*100:.0f}%",
             worst <= 0.0,
             float(np.sqrt((devs ** 2).mean())),
             target=0.0,
             feas_dev=max(0.0, worst),
+            tier=_tier(key),
             bias=float(devs.mean()) * 100,
             spread=float(devs.std()) * 100,
         ))
@@ -247,6 +268,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             "pc1_var_share", "floor", val, f">= {lo}", val >= lo, _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, (lo - val) / target),
+            tier=_tier("pc1_var_share"),
         ))
 
     # --- ramp kurtosis floors, one per family ---
@@ -259,6 +281,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, (lo - val) / target),
+            tier=_tier("total_ramp_excess_kurtosis"),
         ))
 
     if "rack_ramp_excess_kurtosis" in tol:
@@ -270,6 +293,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, (lo - val) / target),
+            tier=_tier("rack_ramp_excess_kurtosis"),
         ))
 
     # --- per-rack ramp level (relative; guards against white-noise faking) ---
@@ -283,6 +307,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             f"{val/1e3:.1f} kW vs {target/1e3:.1f} +/-{rel*100:.0f}%", abs(d) <= rel, d,
             target=target,
             feas_dev=max(0.0, abs(d) - rel),
+            tier=_tier("rack_ramp_abs_mean"),
         ))
 
     # --- ramp synchronization ratio (band); total ramp level is implied by
@@ -296,6 +321,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, lo - val, val - hi) / target,
+            tier=_tier("ramp_sync_ratio"),
         ))
 
     # --- off-diagonal correlation mean (band) ---
@@ -308,6 +334,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, lo - val, val - hi) / target,
+            tier=_tier("offdiag_corr_mean"),
         ))
 
     # --- persistence: 1/e autocorrelation time of the total (band) ---
@@ -320,6 +347,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, lo - val, val - hi) / target,
+            tier=_tier("autocorr_tau"),
         ))
 
     # --- physical capacity ceiling on the peak (from the year envelope) ---
@@ -333,6 +361,7 @@ def _check_stats(stats: dict, spec: dict, n_traces: int = 1) -> Report:
             _rel_dev(val, target),
             target=target,
             feas_dev=max(0.0, (val - cap) / cap),
+            tier=_tier("total_max"),
         ))
 
     return Report(
@@ -377,11 +406,15 @@ def validate_ensemble(traces: list, spec: str | Path | dict, dt: float = 15.0) -
 
 
 def pass_rate(traces: list, spec: str | Path | dict, dt: float = 15.0):
-    """Shipping gate: fraction of individual traces passing the accept test.
+    """Shipping gate: fraction of traces passing all TRACE-TIER checks.
 
-    Returns (rate, reports). Gate on e.g. rate >= 0.8 -- ensemble-mean checks
-    alone would accept a theta whose typical realization fails.
+    Two-tier acceptance: ensemble-tier (level) checks are bias tests on the
+    seed-averaged stats and are NOT per-trace promises, so they are excluded
+    here. The full ship gate = validate_ensemble(...).passed (both tiers on
+    averaged stats) AND pass_rate >= 0.8 (shape/dynamics on every trace).
+
+    Returns (rate, reports).
     """
     spec = load_spec(spec)
     reports = [validate(np.asarray(P), spec, dt) for P in traces]
-    return sum(r.passed for r in reports) / len(reports), reports
+    return sum(r.passed_trace for r in reports) / len(reports), reports
