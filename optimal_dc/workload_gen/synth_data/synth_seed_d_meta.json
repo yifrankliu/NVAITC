@@ -1,6 +1,6 @@
 {
-  "name": "synth_seed8",
-  "seed": 8,
+  "name": "synth_seed_d",
+  "seed": 102,
   "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A_calib.json",
   "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A.json",
   "n_steps": 5761,
@@ -8,9 +8,9 @@
   "dt_s": 15.0,
   "wetbulb_source": "input_04-07-24.csv (sourced, not synthesized)",
   "realized": {
-    "total_mean_MW": 15.938353200315179,
-    "total_max_MW": 26.759595592055202,
-    "total_std_MW": 9.347751001062372
+    "total_mean_MW": 15.549477573709447,
+    "total_max_MW": 26.22374635164597,
+    "total_std_MW": 9.27399428452682
   },
   "validation": {
     "trace_tier_pass": true,
@@ -20,18 +20,18 @@
     ]
   },
   "scheduling": {
-    "n_arrived": 18,
+    "n_arrived": 25,
     "n_dropped": 0,
     "loss_rate": 0.0,
-    "utilization": 0.5146645999958541,
-    "offered_load": 0.5134206525304389,
-    "wait_mean_s": 992.3658274089329,
-    "wait_p95_s": 3146.5043040789574,
-    "slowdown_mean": 1.5961213728408978
+    "utilization": 0.4950665362963429,
+    "offered_load": 0.5330042086780138,
+    "wait_mean_s": 979.3399511929176,
+    "wait_p95_s": 2961.7826045470224,
+    "slowdown_mean": 2.5668201268388424
   },
   "disaggregation": {
-    "divisor": 9,
-    "convention": "faithful (/9 = /3 nParallel x /3 branches)",
+    "divisor": 15,
+    "convention": "compat_v0 (/15, sustain-lc lineage)",
     "columns": [
       0,
       1,
@@ -48,5 +48,6 @@
     15.0,
     17.3
   ],
-  "seeds_tried": 9
+  "require_pass": true,
+  "seeds_tried": 3
 }

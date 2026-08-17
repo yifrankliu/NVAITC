@@ -1,0 +1,14 @@
+{
+  "LCD_USW00013891_2024.csv": {
+    "url": "https://www.ncei.noaa.gov/oa/local-climatological-data/v2/access/2024/LCD_USW00013891_2024.csv",
+    "size": 8357903,
+    "sha256": "7b88f60a59bc4db616b83352fefd27e53c364c62f95380a0248e5fb437f1ea73",
+    "recorded": "2026-08-17"
+  },
+  "LCD_USW00013891_2023.csv": {
+    "url": "https://www.ncei.noaa.gov/oa/local-climatological-data/v2/access/2023/LCD_USW00013891_2023.csv",
+    "size": 8347362,
+    "sha256": "8c4543e406942bc34a88dd4c70c6f53e0d7868373515c5c79ffd8c3db135cef1",
+    "recorded": "2026-08-17"
+  }
+}

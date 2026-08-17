@@ -1,6 +1,6 @@
 {
-  "name": "certified_demo",
-  "seed": 508,
+  "name": "synth_seed_f",
+  "seed": 1,
   "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A_calib.json",
   "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A.json",
   "n_steps": 5761,
@@ -8,29 +8,30 @@
   "dt_s": 15.0,
   "wetbulb_source": "input_04-07-24.csv (sourced, not synthesized)",
   "realized": {
-    "total_mean_MW": 16.811092651584612,
-    "total_max_MW": 26.2846759977392,
-    "total_std_MW": 9.269796978443843
+    "total_mean_MW": 17.029169907101657,
+    "total_max_MW": 25.75524260149307,
+    "total_std_MW": 9.098830532690512
   },
   "validation": {
     "trace_tier_pass": true,
     "failed_checks": [
+      "per_rack_mean_dev",
       "pooled_mix_dev"
     ]
   },
   "scheduling": {
-    "n_arrived": 36,
+    "n_arrived": 28,
     "n_dropped": 0,
     "loss_rate": 0.0,
-    "utilization": 0.5619883980856619,
-    "offered_load": 0.621542029873645,
-    "wait_mean_s": 2231.242123851707,
-    "wait_p95_s": 10833.624333879521,
-    "slowdown_mean": 3.9007318170345027
+    "utilization": 0.5776328239304984,
+    "offered_load": 0.6118012950488901,
+    "wait_mean_s": 880.8081399486337,
+    "wait_p95_s": 3739.497766843483,
+    "slowdown_mean": 2.784745186090073
   },
   "disaggregation": {
-    "divisor": 15,
-    "convention": "compat_v0 (/15, sustain-lc lineage)",
+    "divisor": 9,
+    "convention": "faithful (/9 = /3 nParallel x /3 branches)",
     "columns": [
       0,
       1,
@@ -48,5 +49,5 @@
     17.3
   ],
   "require_pass": true,
-  "seeds_tried": 9
+  "seeds_tried": 2
 }

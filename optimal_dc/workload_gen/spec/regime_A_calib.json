@@ -31,32 +31,32 @@
     "family": "normal",
     "params": {
       "mean": 755920.976054216,
-      "std": 11459.257888671487
+      "std": 15324.528305982569
     }
   },
-  "arrival_rate_per_s": 0.00018493394934241384,
+  "arrival_rate_per_s": 0.0003432319989641767,
   "duration": {
     "family": "lognormal",
     "params": {
-      "mu": 7.740114635042825,
-      "sigma": 0.7784087348452484
+      "mu": 6.97115028856256,
+      "sigma": 0.9515902802731541
     }
   },
   "burstiness": 0.0,
   "discipline": "queue",
-  "ramp_time_s": 52.47387842442175,
-  "wander_std_W": 7620.847821202716,
-  "wander_phi": 0.7454334335253398,
-  "wander_shared_frac": 0.5195062697902312,
+  "ramp_time_s": 25.28557693269247,
+  "wander_std_W": 7413.692088858058,
+  "wander_phi": 0.9497691009212988,
+  "wander_shared_frac": 0.5275689831650879,
   "job_size": {
     "family": "beta",
     "params": {
-      "a": 100.80848065559046,
-      "b": 1.0295655668904007
+      "a": 86.02355442870466,
+      "b": 0.8130207371243765
     }
   },
   "placement": "scattered",
-  "noise_amp_W": 3992.7449697453167,
+  "noise_amp_W": 1063.9102556298385,
   "_provenance": {
     "method": "MSM via scipy differential_evolution (CRN, lambda pinned to mean, two-tier acceptance: level=ensemble bias, shape/dynamics=per-trace)",
     "ship": false,
@@ -105,11 +105,11 @@
       1038,
       1039
     ],
-    "gate_pass_rate": 0.4,
-    "search_Q": 0.07903932464375235,
-    "gate_Q_feasible": 0.0017795866368208835,
-    "gate_Q_faithful": 4.493544505785079,
-    "n_evals": 6480,
+    "gate_pass_rate": 0.475,
+    "search_Q": 0.0399523014739905,
+    "gate_Q_feasible": 0.0,
+    "gate_Q_faithful": 2.7852829595327897,
+    "n_evals": 4880,
     "quick": false,
     "bounds": {
       "dur_mean_s": [

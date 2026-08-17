@@ -1,16 +1,22 @@
 {
-  "name": "synth_seed103",
-  "seed": 103,
+  "name": "demo_replay",
+  "seed": 508,
   "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A_calib.json",
   "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A.json",
   "n_steps": 5761,
   "n_racks": 25,
   "dt_s": 15.0,
-  "wetbulb_source": "input_04-07-24.csv (sourced, not synthesized)",
+  "weather": {
+    "source": "replay",
+    "detail": "input_04-07-24.csv OA Wetbulb column (ORNL on-site sensor, 2024-04-07)",
+    "wb_min_C": 2.8888888888888906,
+    "wb_max_C": 13.166666666666668,
+    "wb_mean_C": 7.751190958359852
+  },
   "realized": {
-    "total_mean_MW": 16.81736641967234,
-    "total_max_MW": 26.247306640079035,
-    "total_std_MW": 9.2471213636206
+    "total_mean_MW": 16.811092651584612,
+    "total_max_MW": 26.2846759977392,
+    "total_std_MW": 9.269796978443843
   },
   "validation": {
     "trace_tier_pass": true,
@@ -19,14 +25,14 @@
     ]
   },
   "scheduling": {
-    "n_arrived": 16,
+    "n_arrived": 36,
     "n_dropped": 0,
     "loss_rate": 0.0,
-    "utilization": 0.5624615551394251,
-    "offered_load": 0.5631377546853418,
-    "wait_mean_s": 1478.6184811166731,
-    "wait_p95_s": 5856.77920002089,
-    "slowdown_mean": 1.7552164231651473
+    "utilization": 0.5619883980856619,
+    "offered_load": 0.621542029873645,
+    "wait_mean_s": 2231.242123851707,
+    "wait_p95_s": 10833.624333879521,
+    "slowdown_mean": 3.9007318170345027
   },
   "disaggregation": {
     "divisor": 15,
@@ -47,5 +53,6 @@
     15.0,
     17.3
   ],
-  "seeds_tried": 4
+  "require_pass": true,
+  "seeds_tried": 9
 }

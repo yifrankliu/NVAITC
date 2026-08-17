@@ -4,7 +4,10 @@ Outputs per trace (all sharing a base name):
   <name>.csv            drop-in replacement for input_04-07-24.csv -- EXACT
                         schema (time, power[1..25], OA Wetbulb Temp) so anything
                         that consumes the real file consumes this one unchanged.
-                        Wet-bulb is SOURCED (real day's column), not synthesized.
+                        Wet-bulb is SOURCED, never synthesized: --wetbulb
+                        'replay' (default, the real day's facility column) or
+                        'noaa:YYYY-MM-DD' (KTYS via weather.py -- the seasonal
+                        axis; see resolve_wetbulb).
   <name>_exogenous.npy  (T, 16) FMU-ready trace from disaggregator.py -- for
                         direct injection into the rollout harness
                         (env.iter_exogenous_var swap, as v0 does).
@@ -61,6 +64,35 @@ def load_real_wetbulb(n_steps: int) -> np.ndarray:
     return np.tile(wb, reps)[:n_steps]
 
 
+def resolve_wetbulb(source: str, n_steps: int) -> tuple[np.ndarray, dict]:
+    """Wet-bulb (degC, 15 s grid) from a named source + its provenance block.
+
+    'replay'            -> the real day's ORNL facility sensor column
+                           (2024-04-07; ground truth, n=1 day) -- the default,
+                           bit-identical to all runs before weather sourcing.
+    'noaa:YYYY-MM-DD'   -> KTYS via weather.wetbulb_for (certified vs the
+                           facility sensor: bias -0.13 C, RMSE 0.63 C) --
+                           any day in the cached station years; unlocks the
+                           seasonal axis (2023 daily-mean wb spans ~+1..+23 C).
+    """
+    if source == "replay":
+        return load_real_wetbulb(n_steps), {
+            "source": "replay",
+            "detail": f"{_REAL_CSV.name} OA Wetbulb column (ORNL on-site sensor, 2024-04-07)",
+        }
+    if source.startswith("noaa:"):
+        from .weather import wetbulb_for, STATION  # lazy: touches weather_cache
+        day = source.split(":", 1)[1]
+        return wetbulb_for(day, n_steps=n_steps), {
+            "source": "noaa",
+            "station": STATION,
+            "date": day,
+            "detail": "KTYS LCD v2 via weather.wetbulb_for; certified vs facility "
+                      "sensor 2024-04-07 (bias -0.13 C, RMSE 0.63 C, corr 0.986)",
+        }
+    raise ValueError(f"unknown wetbulb source {source!r} (use 'replay' or 'noaa:YYYY-MM-DD')")
+
+
 def make_day(config: WorkloadConfig, seed: int, n_steps: int = 5761,
              dt: float = 15.0, mean_band_MW: tuple | None = None,
              require_pass: bool = False, spec_path: Path = _SPEC):
@@ -94,7 +126,7 @@ def make_day(config: WorkloadConfig, seed: int, n_steps: int = 5761,
 
 def deliver(P: np.ndarray, jobs: list, used_seed: int, *, config_path: Path,
             out_dir: Path = _OUT, name: str | None = None, dt: float = 15.0,
-            compat_v0: bool = True, slice_mode="first5",
+            compat_v0: bool = True, slice_mode="first5", wetbulb: str = "replay",
             spec_path: Path = _SPEC, extra_meta: dict | None = None) -> dict:
     """Write the three delivery files for one generated day. Returns the metadata."""
     out_dir = Path(out_dir)
@@ -102,7 +134,7 @@ def deliver(P: np.ndarray, jobs: list, used_seed: int, *, config_path: Path,
     n_steps, n_racks = P.shape
     name = name or f"synth_seed{used_seed}"
 
-    towb = load_real_wetbulb(n_steps)
+    towb, weather_meta = resolve_wetbulb(wetbulb, n_steps)
 
     # 1. drop-in CSV (exact input_04-07-24.csv schema; wet-bulb in degC, raw)
     csv_path = out_dir / f"{name}.csv"
@@ -128,7 +160,9 @@ def deliver(P: np.ndarray, jobs: list, used_seed: int, *, config_path: Path,
         "config": str(config_path),
         "spec": str(spec_path),
         "n_steps": n_steps, "n_racks": n_racks, "dt_s": dt,
-        "wetbulb_source": str(_REAL_CSV.name) + " (sourced, not synthesized)",
+        "weather": {**weather_meta,
+                    "wb_min_C": float(towb.min()), "wb_max_C": float(towb.max()),
+                    "wb_mean_C": float(towb.mean())},
         "realized": {
             "total_mean_MW": float(tot.mean() / 1e6),
             "total_max_MW": float(tot.max() / 1e6),
@@ -170,6 +204,9 @@ def main(argv=None):
                     help="faithful /9 magnitude (NEW thermal regime; needs its own "
                          "baseline pass) instead of the default /15 lineage convention")
     ap.add_argument("--slice", default="first5", help="first5 | representative")
+    ap.add_argument("--wetbulb", default="replay",
+                    help="'replay' (real 2024-04-07 facility column, default) or "
+                         "'noaa:YYYY-MM-DD' (KTYS-sourced weather for that day)")
     args = ap.parse_args(argv)
 
     cfg = WorkloadConfig.from_json(args.config)
@@ -180,7 +217,7 @@ def main(argv=None):
                                          spec_path=Path(args.spec))
     deliver(P, jobs, used_seed, config_path=Path(args.config), out_dir=Path(args.out),
             name=args.name, compat_v0=not args.faithful, slice_mode=args.slice,
-            spec_path=Path(args.spec),
+            wetbulb=args.wetbulb, spec_path=Path(args.spec),
             extra_meta={"mean_band_MW": band, "require_pass": args.require_pass,
                         "seeds_tried": tries})
 

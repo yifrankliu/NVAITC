@@ -1,12 +1,20 @@
 {
-  "name": "certified_demo",
+  "name": "demo_summer",
   "seed": 508,
   "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A_calib.json",
   "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A.json",
   "n_steps": 5761,
   "n_racks": 25,
   "dt_s": 15.0,
-  "wetbulb_source": "input_04-07-24.csv (sourced, not synthesized)",
+  "weather": {
+    "source": "noaa",
+    "station": "USW00013891",
+    "date": "2023-07-26",
+    "detail": "KTYS LCD v2 via weather.wetbulb_for; certified vs facility sensor 2024-04-07 (bias -0.13 C, RMSE 0.63 C, corr 0.986)",
+    "wb_min_C": 19.6,
+    "wb_max_C": 24.7,
+    "wb_mean_C": 22.515952091650753
+  },
   "realized": {
     "total_mean_MW": 16.811092651584612,
     "total_max_MW": 26.2846759977392,
