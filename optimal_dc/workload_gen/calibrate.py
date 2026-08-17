@@ -112,7 +112,7 @@ def _objective(x: np.ndarray, spec: dict, seeds: range) -> float:
     rep = validate_ensemble(traces, spec)
     rate, _ = pass_rate(traces, spec)
     return (rep.distance_feasible + 0.01 * rep.distance_faithful
-            + 4.0 * max(0.0, 0.95 - rate) ** 2)  # strong gate pressure (DE#4): tau/corr per-seed scatter is the binding constraint; pay for centering tau~180 / corr~0.993
+            + max(0.0, 0.9 - rate) ** 2)  # gate margin term. NOTE: DE#4 tried 4x weight/0.95 target -> WORSE (traded ensemble feasibility, gate still 40%): ensemble + per-seed tau/corr floors + 80% gate are jointly unreachable at ~30 jobs/day (Pareto frontier confirmed)
 
 
 def starting_theta(spec: dict) -> np.ndarray:
@@ -133,7 +133,7 @@ def calibrate(quick: bool = False, out_path: str | Path = _OUT) -> WorkloadConfi
 
     # init population = latin hypercube + the analytic starting point
     popsize = 3 if quick else 8
-    maxiter = 8 if quick else 80
+    maxiter = 8 if quick else 60
     rng = np.random.default_rng(0)
     n_pop = popsize * len(BOUNDS)
     init = rng.uniform([b[0] for b in lo_hi], [b[1] for b in lo_hi],

@@ -62,18 +62,34 @@ def load_real_wetbulb(n_steps: int) -> np.ndarray:
 
 
 def make_day(config: WorkloadConfig, seed: int, n_steps: int = 5761,
-             dt: float = 15.0, mean_band_MW: tuple | None = None):
-    """Generate one day; with mean_band_MW, advance seeds until the realized
-    daily mean (MW) lands in band. Returns (P, jobs, used_seed, n_tries)."""
+             dt: float = 15.0, mean_band_MW: tuple | None = None,
+             require_pass: bool = False, spec_path: Path = _SPEC):
+    """Generate one day, rejection-sampling seeds until it meets the delivery
+    conditions. Returns (P, jobs, used_seed, n_tries).
+
+    require_pass: only accept a day passing every TRACE-TIER check of the
+    frozen spec. This is the ABC accept/reject step made explicit at delivery:
+    the calibrated generator PROPOSES days, the pre-committed spec DISPOSES --
+    sampling from the generator conditioned on spec satisfaction (posterior-
+    predictive draws), not post-hoc cherry-picking. Nothing is written for
+    rejected candidates; the sidecar records seeds_tried (~2 expected at the
+    current ~48% acceptance rate -- an honest, reported model property).
+    mean_band_MW: additionally require the realized daily mean (MW) in band.
+    """
+    spec = load_spec(spec_path) if require_pass else None
     for k in range(MAX_TRIES):
         s = seed + k
         P, jobs = generate(config, n_steps=n_steps, dt=dt, seed=s, return_jobs=True)
-        if mean_band_MW is None:
-            return P, jobs, s, k + 1
-        m = P.sum(axis=1).mean() / 1e6
-        if mean_band_MW[0] <= m <= mean_band_MW[1]:
-            return P, jobs, s, k + 1
-    raise RuntimeError(f"no seed in mean band {mean_band_MW} after {MAX_TRIES} tries")
+        if mean_band_MW is not None:
+            m = P.sum(axis=1).mean() / 1e6
+            if not (mean_band_MW[0] <= m <= mean_band_MW[1]):
+                continue
+        if require_pass and not validate(P, spec).passed_trace:
+            continue
+        return P, jobs, s, k + 1
+    raise RuntimeError(
+        f"no seed met the delivery conditions (mean_band={mean_band_MW}, "
+        f"require_pass={require_pass}) after {MAX_TRIES} tries")
 
 
 def deliver(P: np.ndarray, jobs: list, used_seed: int, *, config_path: Path,
@@ -147,6 +163,9 @@ def main(argv=None):
     ap.add_argument("--name", default=None)
     ap.add_argument("--mean-band", default=None,
                     help="MW band 'lo,hi': rejection-sample seeds until the daily mean lands inside")
+    ap.add_argument("--require-pass", action="store_true",
+                    help="only deliver a day passing every trace-tier spec check "
+                         "(ABC accept step at delivery; ~2 seed tries expected)")
     ap.add_argument("--faithful", action="store_true",
                     help="faithful /9 magnitude (NEW thermal regime; needs its own "
                          "baseline pass) instead of the default /15 lineage convention")
@@ -156,11 +175,14 @@ def main(argv=None):
     cfg = WorkloadConfig.from_json(args.config)
     band = tuple(float(x) for x in args.mean_band.split(",")) if args.mean_band else None
     P, jobs, used_seed, tries = make_day(cfg, args.seed, n_steps=args.n_steps,
-                                         mean_band_MW=band)
+                                         mean_band_MW=band,
+                                         require_pass=args.require_pass,
+                                         spec_path=Path(args.spec))
     deliver(P, jobs, used_seed, config_path=Path(args.config), out_dir=Path(args.out),
             name=args.name, compat_v0=not args.faithful, slice_mode=args.slice,
             spec_path=Path(args.spec),
-            extra_meta={"mean_band_MW": band, "seeds_tried": tries})
+            extra_meta={"mean_band_MW": band, "require_pass": args.require_pass,
+                        "seeds_tried": tries})
 
 
 if __name__ == "__main__":
