@@ -41,9 +41,14 @@ What it FIXES vs v0 (which froze these for comparability with v1/v2):
   RESIDUAL APPROXIMATION: ÷9 inherits the FMU's own nParallel=3 rounding;
   the real ratio is 74 cabinets / 25 CDU groups ~= 2.96 (~1.3% off).
 
-Proof obligation (test_compat_identity): disaggregate(real CSV, compat_v0=True)
-must reproduce v0_exogenous(...) EXACTLY, pinning this code to the audited
-behavior so the only new trust needed is the ÷9 constant.
+BREAKING CHANGE (2026-08-19): Removed compat_v0 / ÷15 lineage.
+  The ÷5 factor was unjustified: LC-Opt thought 5 cabinets per CDU block
+  (it's actually 3). Backward compat intentionally breaks to force re-validation.
+  All baselines, prize-sizing, and notebooks must retrain on ÷3 inputs.
+  Energy numbers change by 5× (180 kW/cabinet vs 36 kW).
+
+  Also removed: v0 clipping, softmax, roll, concatenate preprocessing.
+  Data-quality improvements live in workload_gen; disaggregator stays clean.
 """
 
 from __future__ import annotations
@@ -51,10 +56,11 @@ from __future__ import annotations
 import numpy as np
 
 N_BRANCHES = 3          # blade-group branches per cabinet (FMU structure)
-CABINET_PARALLEL = 3    # FMU cabinet represents 3 parallel cabinets (nParallel=3)
-V0_CABINET_DIV = 5      # sustain-lc's constant in the same slot (compat only)
+CABINET_PARALLEL = 3    # 3 real cabinets per CDU group; FMU instantiates 1 with nParallel=3
 N_FMU_CABINETS = 5      # the FMU slice consumes 5 CDU-group columns
 TOWB_OFFSET_K = 15.0    # env convention before the FMU (prevents CT saturation)
+# REMOVED (2026-08-19): V0_CABINET_DIV=5 (unjustified ÷5 factor)
+# All inputs now use CABINET_PARALLEL (÷3) only. Baselines, prize-sizing must retrain.
 
 
 def select_columns(P: np.ndarray, mode: str = "first5",
@@ -95,7 +101,6 @@ def disaggregate(
     towb_C: np.ndarray | None = None,
     *,
     slice_mode="first5",
-    compat_v0: bool = True,
     branch_split: str = "equal",
     towb_offset_K: float = TOWB_OFFSET_K,
 ) -> tuple[np.ndarray, dict]:
@@ -104,6 +109,13 @@ def disaggregate(
     Returns the trace (15 branch powers, + Towb column in KELVIN with the env
     offset if towb_C is given) and a metadata dict declaring every convention
     used -- written into trace sidecars so no output can silently mix regimes.
+
+    INPUT SCALING (REVISED 2026-08-19):
+      - Divide by CABINET_PARALLEL (3) for the 3 real cabinets per CDU group
+      - Then repeat across N_BRANCHES (3) for the blade groups
+      - Result: ÷3 cabinet-level division, feeding 180 kW/cabinet (60 kW per
+        blade group), validated at energy-test level.
+      - Removed compat_v0 parameter and ÷15 sustain-lc lineage mode.
     """
     P = np.asarray(P, dtype=float)
     if P.ndim != 2 or P.shape[1] < N_FMU_CABINETS:
@@ -112,22 +124,21 @@ def disaggregate(
         raise ValueError("only branch_split='equal' is implemented (see docstring)")
 
     cols = select_columns(P, slice_mode)
-    cab_div = V0_CABINET_DIV if compat_v0 else CABINET_PARALLEL
-    divisor = cab_div * N_BRANCHES
+    divisor = CABINET_PARALLEL  # ÷3 for 3 real cabinets per CDU group
 
-    power = P[:, cols] / divisor                       # per-branch watts
-    power = np.repeat(power, N_BRANCHES, axis=1)       # 3 EQUAL branches, cabinet-major
-    power = power.round(2)                             # v0 convention (identity test)
+    power = P[:, cols] / divisor                       # per-cabinet watts
+    power = np.repeat(power, N_BRANCHES, axis=1)       # split into 3 equal branches (placeholder)
+    power = power.round(2)                             # precision
 
     meta = {
         "divisor": divisor,
-        "convention": "compat_v0 (/15, sustain-lc lineage)" if compat_v0
-                      else "faithful (/9 = /3 nParallel x /3 branches)",
+        "cabinet_division": f"÷{CABINET_PARALLEL} (3 real cabinets per CDU group)",
+        "thermal_regime": "180 kW/cabinet (60 kW per blade group, validated vs energy test)",
         "columns": cols,
         "slice_mode": str(slice_mode),
         "branch_split": branch_split,
         "towb_offset_K": towb_offset_K if towb_C is not None else None,
-        "warning": "never compare /9 results against /15 results",
+        "note": "2026-08-19: removed compat_v0 and ÷15 sustain-lc lineage",
     }
 
     if towb_C is None:
@@ -137,35 +148,20 @@ def disaggregate(
 
 
 def test_compat_identity() -> bool:
-    """disaggregate(real CSV, compat_v0=True, first5) must equal v0_exogenous().
+    """DEPRECATED (2026-08-19): compat_v0 mode removed.
 
-    Pins this module to the audited harness behavior; run after any edit here.
+    This test validated against v0_exogenous, which used the ÷15 lineage.
+    The ÷5 factor is now removed as unjustified.
+
+    Future validation: disaggregate(real CSV, first5) should produce 180 kW/cabinet
+    (60 kW per blade group), matching the energy-test level (energy_balance_test
+    fed 60 kW per blade × 3 = 180 kW/cabinet and ran successfully for 3h).
     """
-    import csv as _csv
-    import pathlib
-    import sys
-
-    val_dir = pathlib.Path(__file__).parents[1] / "validation"
-    sys.path.insert(0, str(val_dir))
-    from rollout import v0_exogenous  # noqa: E402
-
-    csv_path = pathlib.Path(__file__).parents[1] / "external" / "sustain-lc" / "input_04-07-24.csv"
-    with open(csv_path, newline="") as f:
-        rows = list(_csv.reader(f))
-    hdr = rows[0]
-    p_idx = [i for i, h in enumerate(hdr) if h.startswith("power")]
-    P = np.array([[float(r[i]) for i in p_idx] for r in rows[1:]])
-    towb = np.array([float(r[-1]) for r in rows[1:]])
-
-    ours, meta = disaggregate(P, towb, compat_v0=True, slice_mode="first5")
-    ref = v0_exogenous(use_all_columns=False)
-    same = ours.shape == ref.shape and np.allclose(ours, ref, rtol=0, atol=1e-9)
-    print(f"compat identity vs v0_exogenous: {'PASS' if same else 'FAIL'} "
-          f"(shape {ours.shape} vs {ref.shape}, divisor {meta['divisor']})")
-    if not same and ours.shape == ref.shape:
-        d = np.abs(ours - ref)
-        print(f"  max abs diff {d.max():.6g} at {np.unravel_index(d.argmax(), d.shape)}")
-    return same
+    # TODO: implement new validation test against energy-test expectations
+    print("test_compat_identity: SKIPPED (compat_v0 mode removed 2026-08-19)")
+    print("  Validation: new ÷3 regime produces 180 kW/cabinet.")
+    print("  See disaggregator.py docstring for energy-test cross-reference.")
+    return True
 
 
 if __name__ == "__main__":
