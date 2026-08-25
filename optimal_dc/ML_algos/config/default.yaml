@@ -1,0 +1,40 @@
+# Default PPO hyperparameter configuration
+# These are proven settings from sustain-lc; can be overridden per variant
+
+# Algorithm
+algorithm: "ppo"
+device: "cuda"  # cuda, cpu, mps
+seed: 0
+
+# Network architecture
+hidden_sizes: [256, 256]  # MLP hidden layer sizes
+
+# Learning
+learning_rate: 3.0e-4
+batch_size: 64
+n_epochs: 10  # policy update epochs per rollout
+n_steps: 2048  # rollout length before update
+
+# PPO hyperparameters
+clip_ratio: 0.2  # policy gradient clip range
+entropy_coef: 0.01  # entropy regularization weight
+value_loss_coef: 0.5  # value function loss weight
+max_grad_norm: 0.5  # gradient clipping
+
+# RL parameters
+gamma: 0.99  # discount factor
+gae_lambda: 0.95  # GAE variance-bias tradeoff
+
+# Training
+n_total_steps: 1_000_000  # overridable via command line
+eval_interval: 10_000  # evaluate every N steps
+log_interval: 100  # log metrics every N steps
+
+# Environment (FrontierEnv)
+max_steps: 5761  # 24h at 15s resolution
+fmu_path: "optimal_dc/external/sustain-lc/frontier_fmu.fmu"
+reward_fn: "energy_only"  # reward function type
+
+# Data (disaggregator output)
+stacking: "none"  # time-series stacking mode
+n_parallel_envs: 1  # TODO: vectorized environments for data efficiency

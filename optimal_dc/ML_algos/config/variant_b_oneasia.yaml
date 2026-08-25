@@ -1,0 +1,40 @@
+# Variant B: Frontier + OneAsia (when available)
+#
+# Ablation target: can we improve on variant A with multi-cluster data?
+# Data: Frontier (real) + OneAsia (real, TBD availability)
+# Objective: show value of multi-cluster training; validate generalization
+
+# Inherit defaults
+inherit: "default.yaml"
+
+# Variant-specific overrides
+variant: "b_frontier_oneasia"
+description: "Frontier CSV + OneAsia real data (pending arrival)"
+
+# Data sources (OneAsia paths TBD; placeholder structure)
+data_sources:
+  - type: "frontier_csv"
+    path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
+    split: [0.50, 0.25, 0.25]  # train / eval_frontier / eval_oneasia
+  - type: "oneasia_csv"
+    path: "optimal_dc/external/oneasia/data_2024.csv"  # TBD
+    split: [0.50, 0.00, 0.50]  # train / unused / eval_oneasia
+  - type: "regime_a_synthetic"
+    config_path: "optimal_dc/workload_gen/spec/regime_A_calib.json"
+    n_synthetic_days: 1  # lighter synthetic, more real data
+
+stacking: "none"  # use real data, minimal synthetic
+
+# Network tuning (can experiment; may differ from variant A)
+hidden_sizes: [256, 256]
+learning_rate: 3.0e-4
+
+# Training specifics
+n_total_steps: 1_000_000  # longer to leverage more data
+
+# Checkpoints will be saved to:
+# optimal_dc/ML_algos/checkpoints/variant_b/ppo_frontier_oneasia_seed0/
+
+# Note: This variant is conditional on OneAsia data arrival.
+# The config is a template; actual paths and data loading will be
+# updated once OneAsia provides their data.
