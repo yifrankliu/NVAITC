@@ -1,12 +1,15 @@
 """
-Training script: train ML algorithm on FrontierEnv with preprocessed exogenous data.
+SUPERSEDED STUB -- use benchmarks.py instead (2026-08-28).
 
-Usage:
-    python -m optimal_dc.ML_algos.train \
-        --config optimal_dc/ML_algos/config/variant_a_frontier.yaml \
-        --output optimal_dc/ML_algos/checkpoints/variant_a/ \
-        --n_steps 1000000 \
-        --algo ppo
+This script predates the v3 env refactor and DOES NOT RUN:
+  - it imports `optimal_dc.external.sustain_lc.frontier_env` (the directory is
+    `sustain-lc`, unimportable) and a `FrontierEnv` class that does not exist
+    in frontier_env.py (the real class is SmallFrontierModel);
+  - both prepare_exogenous_trace() branches raise NotImplementedError.
+The working train/eval entry point is:
+    python -m optimal_dc.ML_algos.benchmarks train ...
+Kept only as a sketch of the ExogenousTrace-based data flow; delete or rewrite
+when that seam (data_loader -> env) is settled.
 """
 
 import argparse

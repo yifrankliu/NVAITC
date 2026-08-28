@@ -16,11 +16,11 @@ Public API:
                                       (envelope/calibrate import lazily -- heavy deps)
 
 Typical use:
-    from workload_gen import WorkloadConfig, generate, validate_ensemble, pass_rate
-    cfg    = WorkloadConfig.regime_A_starting("workload_gen/spec/regime_A.json")
+    from workload_gen_pipeline import WorkloadConfig, generate, validate_ensemble, pass_rate
+    cfg    = WorkloadConfig.regime_A_starting("workload_gen_pipeline/spec/regime_A.json")
     traces = [generate(cfg, seed=s) for s in range(20)]
-    rep    = validate_ensemble(traces, "workload_gen/spec/regime_A.json")  # MSM objective
-    rate, _ = pass_rate(traces, "workload_gen/spec/regime_A.json")         # shipping gate
+    rep    = validate_ensemble(traces, "workload_gen_pipeline/spec/regime_A.json")  # MSM objective
+    rate, _ = pass_rate(traces, "workload_gen_pipeline/spec/regime_A.json")         # shipping gate
 
 Internals (leading-underscore helpers in each module) are private and may change.
 """
@@ -46,5 +46,5 @@ __all__ = [
 ]
 
 # calibrate.py (scipy) and envelope.py (pandas/openpyxl) are import-on-demand:
-#   from workload_gen.calibrate import calibrate
-#   from workload_gen.envelope import build_envelope
+#   from workload_gen_pipeline.calibrate import calibrate
+#   from workload_gen_pipeline.envelope import build_envelope

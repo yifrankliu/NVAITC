@@ -23,8 +23,8 @@ Decisions recorded (Frank, 2026-08-16):
     means 10.2-12.8 MW; seasonality lives in the cooling channel).
 
 Usage:
-    python -m workload_gen.freeze            # default paths
-    python -m workload_gen.freeze <csv> <out_json>
+    python -m optimal_dc.workload_gen_pipeline.freeze            # default paths
+    python -m optimal_dc.workload_gen_pipeline.freeze <csv> <out_json>
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def build_spec(P: np.ndarray, dt_s: float, source_csv: str, date: str,
             "n_steps": int(n_steps),
             "units": "watts",
             "provenance": (
-                "frozen by workload_gen/freeze.py via validate.compute_stats "
+                "frozen by workload_gen_pipeline/freeze.py via validate.compute_stats "
                 "(shared freeze/check conventions). Day kept deliberately: "
                 "LC-Opt precedent + forward-looking high activity "
                 "(98.8th pct of 2023 daily means). Capacity ceiling from the "

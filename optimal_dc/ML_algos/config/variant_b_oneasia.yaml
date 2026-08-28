@@ -20,7 +20,7 @@ data_sources:
     path: "optimal_dc/external/oneasia/data_2024.csv"  # TBD
     split: [0.50, 0.00, 0.50]  # train / unused / eval_oneasia
   - type: "regime_a_synthetic"
-    config_path: "optimal_dc/workload_gen/spec/regime_A_calib.json"
+    config_path: "optimal_dc/workload_gen_pipeline/spec/regime_A_calib.json"
     n_synthetic_days: 1  # lighter synthetic, more real data
 
 stacking: "none"  # use real data, minimal synthetic

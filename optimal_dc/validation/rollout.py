@@ -116,7 +116,24 @@ def v0_exogenous(use_all_columns=False, clip_sigma=None, Towb_offset_in_K=15.0,
     return np.concatenate([power.round(2), towb.reshape(-1, 1)], axis=1)
 
 
-def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1):
+def load_exogenous(source):
+    """FMU-ready exogenous trace from a deliver.py `<name>_exogenous.npy` (path)
+    or an already-loaded (T, 16) array: 15 branch powers in watts (5 cabinets x
+    3 branches, cabinet-major) + Towb in KELVIN with the env's +15 K offset
+    already applied (deliver.py writes exactly this format)."""
+    arr = source if isinstance(source, np.ndarray) else np.load(source)
+    if arr.ndim != 2 or arr.shape[1] != 16:
+        raise ValueError(f"exogenous trace must be (T, 16), got {arr.shape}")
+    towb = arr[:, -1]
+    if towb.min() < 200.0:  # degC (or offset-less Kelvin) slipped through
+        raise ValueError(
+            f"Towb column looks like degC (min {towb.min():.1f}); expected Kelvin "
+            "with the +15 K env offset -- pass the _exogenous.npy, not the CSV")
+    return arr
+
+
+def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1,
+             exogen_trace=None):
     # PROJECT STANDARD is v2: every sustain-lc train/eval script overrides the constructor
     # default (=1) to exogen_gen_v=2, so prize-sizing must use v2 for ΔE to be comparable
     # to their baselines/agents.
@@ -126,7 +143,16 @@ def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1):
     # flattening effect, instantiate exogenous_variable_generator_2 directly with a smaller
     # smoothing_kernel_size. See prize_sizing memory.
     # exogen_gen_v=0 => faithful v0 (no clip/roll/softmax/smoothing; see v0_exogenous).
-    if stop_time is None:
+    # exogen_trace   => a DELIVERED trace (deliver.py _exogenous.npy path or (T,16)
+    #                   array) replaces the env's iterator entirely, same swap as v0;
+    #                   exogen_gen_v then only affects the throwaway constructor. This
+    #                   is the synthetic-workload entry point (train-on-synthetic /
+    #                   test-on-real both run through here).
+    if exogen_trace is not None:
+        exogen_trace = load_exogenous(exogen_trace)[::subsample_rate]
+        if stop_time is None:
+            stop_time = (len(exogen_trace) - 1) * step_size   # one full pass, no cycling
+    elif stop_time is None:
         stop_time = full_pass_stop_time(exogen_gen_v, step_size)
     construct_v = exogen_gen_v if exogen_gen_v in (1, 2) else 1   # v0: build w/ v1, swap iterator below
     with _chdir(_SUSTAIN):
@@ -136,7 +162,9 @@ def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1):
             exogen_gen_v=construct_v,
             subsample_rate=subsample_rate,
         )
-    if exogen_gen_v == 0:
+    if exogen_trace is not None:
+        env.iter_exogenous_var = _cyclic(exogen_trace)
+    elif exogen_gen_v == 0:
         trace = v0_exogenous(use_all_columns=False)[::subsample_rate]
         env.iter_exogenous_var = _cyclic(trace)
     return env
@@ -179,8 +207,11 @@ def _cabinet_temps_K(info):
 
 
 def run_policy(policy, *, stop_time=None, step_size=15.0, exogen_gen_v=2,
-               subsample_rate=1, name="policy"):
-    """Run ONE independent rollout of `policy` over the real exogenous trace.
+               subsample_rate=1, name="policy", exogen_trace=None):
+    """Run ONE independent rollout of `policy` over an exogenous trace: the real
+    trace via exogen_gen_v (default), or a DELIVERED synthetic day via
+    exogen_trace (deliver.py _exogenous.npy path or (T,16) array), in which case
+    stop_time defaults to one full pass of that trace.
 
     policy : callable(obs, t_s, step_idx) -> dict
         {'cdu-cabinet-1..5': np.ndarray shape (5,) in [-1, 1],
@@ -199,9 +230,14 @@ def run_policy(policy, *, stop_time=None, step_size=15.0, exogen_gen_v=2,
     and summarize() maps it to feasible=False with E_cooling=NaN.
     """
     if stop_time is None:
-        stop_time = full_pass_stop_time(exogen_gen_v, step_size)
+        if exogen_trace is not None:
+            exogen_trace = load_exogenous(exogen_trace)
+            stop_time = (len(exogen_trace[::subsample_rate]) - 1) * step_size
+        else:
+            stop_time = full_pass_stop_time(exogen_gen_v, step_size)
     env = make_env(stop_time=stop_time, step_size=step_size,
-                   exogen_gen_v=exogen_gen_v, subsample_rate=subsample_rate)
+                   exogen_gen_v=exogen_gen_v, subsample_rate=subsample_rate,
+                   exogen_trace=exogen_trace)
     obs = env.reset()
     n_steps = int(stop_time // step_size)
 

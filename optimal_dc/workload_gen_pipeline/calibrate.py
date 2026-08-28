@@ -23,8 +23,8 @@ Method notes (why each choice):
     reported number is out-of-sample w.r.t. the search.
 
 Usage:
-    python -m workload_gen.calibrate            # full search (~10-15 min)
-    python -m workload_gen.calibrate --quick    # smoke search (~2 min)
+    python -m optimal_dc.workload_gen_pipeline.calibrate            # full search (~10-15 min)
+    python -m optimal_dc.workload_gen_pipeline.calibrate --quick    # smoke search (~2 min)
 Writes spec/regime_A_calib.json including a _provenance block.
 """
 

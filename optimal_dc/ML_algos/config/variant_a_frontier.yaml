@@ -11,13 +11,17 @@ inherit: "default.yaml"
 variant: "a_frontier_only"
 description: "Frontier CSV (real, 1 day) + regime-A synthetic (extended)"
 
-# Data sources
+# Data pipeline (read by benchmarks.py; paths relative to the repo root NVAITC/)
+csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
+disaggregator_version: "v3"
+
+# Data sources (aspirational schema — not yet consumed by any script)
 data_sources:
   - type: "frontier_csv"
     path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
     split: [0.67, 0.33]  # 16h train, 8h eval
   - type: "regime_a_synthetic"
-    config_path: "optimal_dc/workload_gen/spec/regime_A_calib.json"
+    config_path: "optimal_dc/workload_gen_pipeline/spec/regime_A_calib.json"
     n_synthetic_days: 2  # extend training with regime-A
 
 stacking: "regime_a_synthetic"

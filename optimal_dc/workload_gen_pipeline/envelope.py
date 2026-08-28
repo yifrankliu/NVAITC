@@ -23,9 +23,9 @@ caveat (envelope 2023, calibration day 2024; the day sits at the 98.8th pct of
 2023 daily means -- deliberate, LC-Opt precedent + forward-looking).
 
 Usage:
-    python -m workload_gen.envelope          # writes spec/envelope.json
+    python -m optimal_dc.workload_gen_pipeline.envelope          # writes spec/envelope.json
 Requires pandas + openpyxl (run under the ML_workspace env; the module itself
-only imports them lazily so the rest of workload_gen stays dependency-light).
+only imports them lazily so the rest of workload_gen_pipeline stays dependency-light).
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def build_envelope(xlsx_path: str | Path = _XLSX, out_path: str | Path = _OUT,
             "op_day_rule": f"daily mean >= {OP_DAY_MIN_MEAN_MW} MW (excludes the Apr 1-2 outage only)",
             "outage_days": outage_days,
             "dip_days": dip_days,
-            "provenance": "built by workload_gen/envelope.py; staleness caveat: envelope 2023, calibration day 2024-04-07",
+            "provenance": "built by workload_gen_pipeline/envelope.py; staleness caveat: envelope 2023, calibration day 2024-04-07",
         },
         "capacity_W": float(c.max() * 1e6),   # demonstrated peak, ALL rows
         "compute_all_rows_MW": {"min": float(c.min()), **pcts(c), "max": float(c.max())},

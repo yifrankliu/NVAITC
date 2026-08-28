@@ -1,12 +1,18 @@
 {
   "name": "certified_demo",
   "seed": 508,
-  "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A_calib.json",
-  "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen\\spec\\regime_A.json",
+  "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen_pipeline\\spec\\regime_A_calib.json",
+  "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen_pipeline\\spec\\regime_A.json",
   "n_steps": 5761,
   "n_racks": 25,
   "dt_s": 15.0,
-  "wetbulb_source": "input_04-07-24.csv (sourced, not synthesized)",
+  "weather": {
+    "source": "replay",
+    "detail": "input_04-07-24.csv OA Wetbulb column (ORNL on-site sensor, 2024-04-07)",
+    "wb_min_C": 2.8888888888888906,
+    "wb_max_C": 13.166666666666668,
+    "wb_mean_C": 7.751190958359852
+  },
   "realized": {
     "total_mean_MW": 16.811092651584612,
     "total_max_MW": 26.2846759977392,
@@ -23,14 +29,15 @@
     "n_dropped": 0,
     "loss_rate": 0.0,
     "utilization": 0.5619883980856619,
-    "offered_load": 0.621542029873645,
+    "offered_load": 0.6215420298736449,
     "wait_mean_s": 2231.242123851707,
     "wait_p95_s": 10833.624333879521,
     "slowdown_mean": 3.9007318170345027
   },
   "disaggregation": {
-    "divisor": 15,
-    "convention": "compat_v0 (/15, sustain-lc lineage)",
+    "divisor": 9,
+    "convention": "/9 (/3 cabinets per CDU group x /3 branches)",
+    "thermal_regime": "/9: ~215 kW/cabinet, ~72 kW/branch at the real day's 645 kW column mean",
     "columns": [
       0,
       1,
@@ -41,12 +48,12 @@
     "slice_mode": "first5",
     "branch_split": "equal",
     "towb_offset_K": 15.0,
-    "warning": "never compare /9 results against /15 results"
+    "warning": "never compare a /9 number against a /15 (sustain-lc lineage) number"
   },
   "mean_band_MW": [
     15.0,
     17.3
   ],
   "require_pass": true,
-  "seeds_tried": 9
+  "seeds_tried": 1
 }

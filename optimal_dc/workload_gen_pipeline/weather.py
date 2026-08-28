@@ -11,7 +11,7 @@ ATDD's public record is GHCN-Daily: no hourly humidity exists there, so
 wet-bulb is underivable regardless of distance.
 
 CERTIFICATION (2026-08-17, n=1 day -- the only day of facility sensor data we
-own; rerun `python -m workload_gen.weather` anytime): KTYS vs ORNL's on-site
+own; rerun `python -m optimal_dc.workload_gen_pipeline.weather` anytime): KTYS vs ORNL's on-site
 OA Wetbulb sensor on 2024-04-07: bias -0.13 C, RMSE 0.63 C, corr 0.986 -> GO.
 The gate also fixed two implementation traps, encoded below:
   1. LCD v2 temperatures are ALREADY degC (v1 was degF). Applying the F->C

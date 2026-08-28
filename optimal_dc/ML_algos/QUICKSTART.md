@@ -18,7 +18,7 @@ pip install torch numpy pyyaml gymnasium
 # Verify frontier_env exists
 ls optimal_dc/external/sustain-lc/frontier_env.py
 ls optimal_dc/external/sustain-lc/input_04-07-24.csv
-ls optimal_dc/workload_gen/spec/regime_A_calib.json
+ls optimal_dc/workload_gen_pipeline/spec/regime_A_calib.json
 ```
 
 ---
@@ -167,7 +167,7 @@ ls optimal_dc/external/sustain-lc/input_04-07-24.csv
 ### Error: "regime_A_calib.json not found"
 ```bash
 # Run calibration first (one-time setup)
-python -m optimal_dc.workload_gen.calibrate
+python -m optimal_dc.workload_gen_pipeline.calibrate
 
 # Or copy from a prior run if available
 ```

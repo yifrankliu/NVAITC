@@ -30,9 +30,10 @@ n_total_steps: 1_000_000  # overridable via command line
 eval_interval: 10_000  # evaluate every N steps
 log_interval: 100  # log metrics every N steps
 
-# Environment (FrontierEnv)
+# Environment (SmallFrontierModel_v3)
 max_steps: 5761  # 24h at 15s resolution
-fmu_path: "optimal_dc/external/sustain-lc/frontier_fmu.fmu"
+# NOTE: the FMU path is not configurable — the env loads the FMU sitting next
+# to frontier_env.py in external/sustain-lc/ (LC_Frontier_5Cabinet_4_17_25.fmu)
 reward_fn: "energy_only"  # reward function type
 
 # Data (disaggregator output)

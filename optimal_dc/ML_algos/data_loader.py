@@ -1,5 +1,5 @@
 """
-Data loader: CSV + synthetic workload_gen -> exogenous traces for FrontierEnv.
+Data loader: CSV + synthetic workload_gen_pipeline -> exogenous traces for FrontierEnv.
 
 Handles loading real Frontier data and optional regime-A synthetic extension.
 """
