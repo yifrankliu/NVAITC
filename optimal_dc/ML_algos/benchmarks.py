@@ -28,11 +28,14 @@ import yaml
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).parents[3]))
+# Repo root (NVAITC/) so `optimal_dc.*` namespace imports resolve:
+# this file is optimal_dc/ML_algos/benchmarks.py -> parents[2] is the repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
 
 from optimal_dc.ML_algos.ppo import PPO
 from optimal_dc.ML_algos.evaluate import evaluate_policy, print_comparison_table
-from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import SmallFrontierModel_v3, create_env_v3
+from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import SmallFrontierModel_v3
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,17 +76,16 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
 
     # Create environment with pluggable CSV path and disaggregator
     logger.info("\nInitializing FrontierEnv_v3...")
-    csv_path = config.get("csv_path", "optimal_dc/external/sustain-lc/input_04-07-24.csv")
+    csv_path = Path(config.get("csv_path", "optimal_dc/external/sustain-lc/input_04-07-24.csv"))
+    if not csv_path.is_absolute():
+        csv_path = _REPO_ROOT / csv_path
     disaggregator_version = config.get("disaggregator_version", "v3")
-    fmu_path = config.get("fmu_path")
 
     env = SmallFrontierModel_v3(
-        fmu_path=fmu_path,
         csv_path=csv_path,
         disaggregator_version=disaggregator_version,
-        max_steps=5761,
     )
-    logger.info(f"Data source: {csv_path} (disaggregator: v{disaggregator_version[-1]})")
+    logger.info(f"Data source: {csv_path} (disaggregator: {disaggregator_version})")
 
     # Create algorithm
     logger.info("Creating PPO agent...")
@@ -108,9 +110,9 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
         "algorithm": "ppo",
         "n_steps": n_steps,
         "seed": seed,
-        "config": config_path,
+        "config": str(config_path),
         "total_episodes": agent.total_episodes,
-        "data_source": csv_path,
+        "data_source": str(csv_path),
         "disaggregator": disaggregator_version,
         "checkpoint": str(final_checkpoint),
     }
@@ -154,15 +156,14 @@ def eval_variant_a(checkpoint_path: str | Path, n_episodes: int = 5):
     logger.info(f"Config: {config_path}")
 
     # Create environment and agent with same data source
-    csv_path = metadata.get("data_source", "optimal_dc/external/sustain-lc/input_04-07-24.csv")
+    csv_path = Path(metadata.get("data_source", "optimal_dc/external/sustain-lc/input_04-07-24.csv"))
+    if not csv_path.is_absolute():
+        csv_path = _REPO_ROOT / csv_path
     disaggregator_version = metadata.get("disaggregator", "v3")
-    fmu_path = config.get("fmu_path")
 
     env = SmallFrontierModel_v3(
-        fmu_path=fmu_path,
         csv_path=csv_path,
         disaggregator_version=disaggregator_version,
-        max_steps=5761,
     )
 
     agent = PPO(config, env)

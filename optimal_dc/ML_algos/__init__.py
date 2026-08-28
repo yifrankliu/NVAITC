@@ -9,7 +9,15 @@ The input/output contract is defined in io_contract.py:
   - Output: normalized actions for 5 CDU-cabinets + 1 cooling tower
 """
 
-from .base_algorithm import BaseAlgorithm
-from .ppo import PPO
+# PPO/BaseAlgorithm need torch; import them lazily (PEP 562) so numpy-only
+# consumers (data_loader, io_contract) work in envs without torch installed.
+_LAZY = {"BaseAlgorithm": ".base_algorithm", "PPO": ".ppo"}
 
 __all__ = ["BaseAlgorithm", "PPO"]
+
+
+def __getattr__(name):
+    if name in _LAZY:
+        from importlib import import_module
+        return getattr(import_module(_LAZY[name], __name__), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -5,10 +5,17 @@ Handles loading real Frontier data and optional regime-A synthetic extension.
 """
 
 import csv
+import sys
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional
 import logging
+
+# Repo root (NVAITC/) so `optimal_dc.*` namespace imports resolve when this
+# module is loaded standalone (there is no optimal_dc/__init__.py).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 logger = logging.getLogger(__name__)
 
@@ -59,51 +66,37 @@ def disaggregate_to_fmu(
     """
     Disaggregate per-CDU power to per-blade-group + wet-bulb (FMU inputs).
 
+    Thin wrapper around the canonical workload_gen_pipeline.disaggregator (/9
+    convention). Do NOT reimplement the divisor here: np.repeat copies, it does
+    not divide, and a /3-only version runs the FMU 3x too hot.
+
     Args:
         P: (n_steps, 25) per-CDU power in watts
         towb_C: (n_steps,) wet-bulb in Celsius
-        selected_columns: which 5 CDU columns to use (default: [0,1,2,3,4])
-        branch_split: "equal" | "decorrelated" (default: "equal")
+        selected_columns: which 5 CDU columns to use (default: first5)
+        branch_split: "equal" (only option for now)
         towb_offset_K: CT offset (default: 15 K)
 
     Returns:
         exog: (n_steps, 16) blade-group power + towb in kelvin
-        meta: disaggregation metadata
+        meta: disaggregation metadata (canonical sidecar dict + n_steps)
     """
-    if selected_columns is None:
-        selected_columns = [0, 1, 2, 3, 4]
+    from optimal_dc.workload_gen_pipeline.disaggregator import disaggregate
 
-    n_branches = 3
-    cabinet_parallel = 3  # 3 real cabinets per CDU group
+    slice_mode = "first5" if selected_columns is None else list(selected_columns)
+    logger.info(f"Disaggregating to FMU inputs: slice_mode={slice_mode}, branch_split={branch_split}")
 
-    logger.info(f"Disaggregating to FMU inputs: {len(selected_columns)} columns, branch_split={branch_split}")
-
-    # Select columns and divide by cabinet factor
-    power_selected = P[:, selected_columns] / cabinet_parallel  # (T, 5) per-cabinet power
-
-    # Distribute across blade groups
-    if branch_split == "equal":
-        blade_power = np.repeat(power_selected, n_branches, axis=1)  # (T, 15)
-    else:
-        raise NotImplementedError(f"branch_split={branch_split}")
-
-    # Convert wet-bulb to Kelvin
-    towb_K = towb_C + 273.15 + towb_offset_K
-
-    # Concatenate
-    exog = np.concatenate([blade_power, towb_K.reshape(-1, 1)], axis=1)
+    exog, meta = disaggregate(
+        P,
+        towb_C,
+        slice_mode=slice_mode,
+        branch_split=branch_split,
+        towb_offset_K=towb_offset_K,
+    )
     exog = exog.astype(np.float32)
+    meta = {**meta, "n_steps": exog.shape[0]}
 
-    meta = {
-        "divisor": cabinet_parallel,
-        "thermal_regime": "180 kW/cabinet (60 kW per blade group)",
-        "columns": selected_columns,
-        "branch_split": branch_split,
-        "towb_offset_K": float(towb_offset_K),
-        "n_steps": exog.shape[0],
-    }
-
-    logger.info(f"Disaggregated: {exog.shape} exogenous trace")
+    logger.info(f"Disaggregated: {exog.shape} exogenous trace ({meta['convention']})")
     return exog, meta
 
 
@@ -122,32 +115,26 @@ def generate_regime_a_synthetic(
 
     Returns:
         P_syn: (T, 25) synthetic per-CDU power
-        towb_syn: (T,) constant wet-bulb (Fahrenheit, typical ~60°F)
+        towb_syn: (T,) constant wet-bulb in Celsius (~15.6°C, the real day's mean)
     """
     try:
-        from optimal_dc.workload_gen_pipeline import generate, load_spec
+        from optimal_dc.workload_gen_pipeline import generate, WorkloadConfig
     except ImportError:
-        logger.error("workload_gen_pipeline not importable; ensure PYTHONPATH includes optimal_dc")
+        logger.error("workload_gen_pipeline not importable; ensure the repo root (NVAITC/) is on sys.path")
         raise
 
     logger.info(f"Generating {n_days} synthetic regime-A days (seed={seed})")
 
     spec_path = Path(__file__).parents[1] / "workload_gen_pipeline/spec/regime_A.json"
-    spec = load_spec(spec_path)
 
-    # Load calibrated config
+    # Load calibrated config; fall back to the spec-derived starting config
     config_path = Path(__file__).parents[1] / "workload_gen_pipeline/spec/regime_A_calib.json"
-    if not config_path.exists():
-        logger.warning(f"regime_A_calib.json not found at {config_path}; using regime_A_starting")
-        # Fallback: use starting config (less tuned, but works for prototyping)
-        # For now, we'll just generate with default regime_A
-        # In production, regime_A_calib.json should exist after calibration runs
-
-        from optimal_dc.workload_gen_pipeline.config import WorkloadConfig
-        config = WorkloadConfig.from_spec(spec_path)
-    else:
-        from optimal_dc.workload_gen_pipeline.config import WorkloadConfig
+    if config_path.exists():
         config = WorkloadConfig.from_json(config_path)
+    else:
+        logger.warning(f"regime_A_calib.json not found at {config_path}; "
+                       "falling back to regime_A_starting (uncalibrated)")
+        config = WorkloadConfig.regime_A_starting(spec_path)
 
     # Generate N independent days
     n_steps_per_day = 5761  # 24h at 15s resolution
@@ -198,7 +185,8 @@ def load_data_variant_a(
         }
     """
     if csv_path is None:
-        csv_path = Path(__file__).parents[2] / "external/sustain-lc/input_04-07-24.csv"
+        # this file is optimal_dc/ML_algos/data_loader.py -> parents[1] is optimal_dc/
+        csv_path = Path(__file__).parents[1] / "external/sustain-lc/input_04-07-24.csv"
 
     logger.info(f"Loading variant A data (stacking={stacking})")
 

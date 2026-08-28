@@ -4,14 +4,24 @@ Pluggable exogenous variable generators (disaggregators).
 Three versions:
   v1: sustain-lc original (÷15, with clipping)
   v2: sustain-lc v2 (÷15, with softmax + smoothing)
-  v3: NVAITC new (÷3, no preprocessing)
+  v3: NVAITC new (÷9, no preprocessing)
 
 All accept CSV (real Frontier or synthetic regime-A) and output (T, 16) array.
 """
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from scipy.special import softmax
+# scipy is imported lazily inside ExogenousGeneratorV2 (softmax) so that
+# v1/v3 users don't need it installed.
+
+# Make `optimal_dc.*` namespace imports work even when this module is loaded
+# standalone (there is no optimal_dc/__init__.py; repo root must be on sys.path).
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 class ExogenousGeneratorV1:
@@ -78,6 +88,8 @@ class ExogenousGeneratorV2:
             csv_path: path to CSV (time, power[1..25], Towb)
             smoothing_kernel_size: convolution kernel size (default 50)
         """
+        from scipy.special import softmax
+
         total_num_cabinets = 25
         self.exogenous_var = pd.read_csv(csv_path)
 
@@ -138,18 +150,19 @@ class ExogenousGeneratorV2:
 
 
 class ExogenousGeneratorV3:
-    """NVAITC new: ÷3 divisor, no preprocessing, uses NVAITC disaggregator."""
+    """NVAITC new: ÷9 divisor, no preprocessing, uses NVAITC disaggregator."""
 
     def __init__(self, csv_path, Towb_offset_in_K=15.0,
-                 selected_columns=None, branch_split="equal"):
+                 selected_columns=None, branch_split="equal", subsample_rate=1):
         """
-        Load CSV and apply NVAITC disaggregator (÷3 cabinet).
+        Load CSV and apply NVAITC disaggregator (÷9 = ÷3 cabinets × ÷3 branches).
 
         Args:
             csv_path: path to CSV (time, power[1..25], Towb)
             Towb_offset_in_K: wet-bulb offset (default 15K)
             selected_columns: which 5 CDU groups to use (default: [0,1,2,3,4])
             branch_split: "equal" (only option for now)
+            subsample_rate: keep every k-th row (default 1 = no subsampling)
         """
         from optimal_dc.workload_gen_pipeline.disaggregator import disaggregate
 
@@ -170,11 +183,11 @@ class ExogenousGeneratorV3:
             towb_offset_K=Towb_offset_in_K
         )
 
-        self.exogenous_var_final = exog.astype(np.float32)  # (T, 16)
+        self.exogenous_var_final = exog.astype(np.float32)[::subsample_rate]  # (T, 16)
         self.meta = meta
 
         print(f"[V3] Loaded {csv_path}: {self.exogenous_var_final.shape}")
-        print(f"     {meta['thermal_regime']}")
+        print(f"     {meta['convention']}")
         print(f"     Columns: {meta['columns']}, Split: {meta['branch_split']}")
 
     def iterate_cyclically(self):

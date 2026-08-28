@@ -27,7 +27,7 @@ Internals (leading-underscore helpers in each module) are private and may change
 
 from .config import WorkloadConfig, DistSpec
 from .generator import generate, job_metrics
-from .validate import validate, validate_ensemble, pass_rate, compute_stats
+from .validate import validate, validate_ensemble, pass_rate, compute_stats, load_spec
 from .freeze import freeze
 from .disaggregator import disaggregate
 
@@ -40,6 +40,7 @@ __all__ = [
     "validate_ensemble",
     "pass_rate",
     "compute_stats",
+    "load_spec",
     "freeze",
     "disaggregate",
 ]

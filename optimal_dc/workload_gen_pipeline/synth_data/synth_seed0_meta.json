@@ -1,0 +1,58 @@
+{
+  "name": "synth_seed0",
+  "seed": 0,
+  "config": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen_pipeline\\spec\\regime_A_calib.json",
+  "spec": "C:\\Users\\frank\\NVAITC_files\\NVAITC\\optimal_dc\\workload_gen_pipeline\\spec\\regime_A.json",
+  "n_steps": 5761,
+  "n_racks": 25,
+  "dt_s": 15.0,
+  "weather": {
+    "source": "replay",
+    "detail": "input_04-07-24.csv OA Wetbulb column (ORNL on-site sensor, 2024-04-07)",
+    "wb_min_C": 2.8888888888888906,
+    "wb_max_C": 13.166666666666668,
+    "wb_mean_C": 7.751190958359852
+  },
+  "realized": {
+    "total_mean_MW": 17.965150490794635,
+    "total_max_MW": 26.120157503333893,
+    "total_std_MW": 9.00057027245056
+  },
+  "validation": {
+    "trace_tier_pass": true,
+    "failed_checks": [
+      "per_rack_mean_dev",
+      "total_mean_W",
+      "pooled_mix_dev"
+    ]
+  },
+  "scheduling": {
+    "n_arrived": 30,
+    "n_dropped": 0,
+    "loss_rate": 0.0,
+    "utilization": 0.624123656113683,
+    "offered_load": 0.634483421559253,
+    "wait_mean_s": 1604.6971486944042,
+    "wait_p95_s": 6598.305146228395,
+    "slowdown_mean": 2.136791259664264
+  },
+  "disaggregation": {
+    "divisor": 9,
+    "convention": "/9 (/3 cabinets per CDU group x /3 branches)",
+    "thermal_regime": "/9: ~215 kW/cabinet, ~72 kW/branch at the real day's 645 kW column mean",
+    "columns": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "slice_mode": "first5",
+    "branch_split": "equal",
+    "towb_offset_K": 15.0,
+    "warning": "never compare a /9 number against a /15 (sustain-lc lineage) number"
+  },
+  "mean_band_MW": null,
+  "require_pass": true,
+  "seeds_tried": 1
+}
