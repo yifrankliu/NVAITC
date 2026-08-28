@@ -1,20 +1,19 @@
 """
-Benchmark suite: train and evaluate variant A (Frontier only, no OneAsia).
+Benchmark suite: train and evaluate the sustain-lc baselines on variant A data.
 
-This script provides an end-to-end workflow:
-  1. Load variant A data (Frontier CSV + regime-A synthetic)
-  2. Train PPO agent
-  3. Evaluate on held-out data
-  4. Compare to baseline
+Algorithms (the two RL baselines sustain-lc ships, reused from the submodule):
+  ma_ca_ppo     DTDE multi-agent CA-PPO (CDUCAB continuous + CT discrete)
+  mh_ma_ca_ppo  multi-head CDUCAB (top-level Gaussian + valve Dirichlet) + CT
 
 Usage:
     python -m optimal_dc.ML_algos.benchmarks train \
+        --algo ma_ca_ppo \
         --config optimal_dc/ML_algos/config/variant_a_frontier.yaml \
         --output checkpoints/variant_a/ \
         --n_steps 100_000
 
     python -m optimal_dc.ML_algos.benchmarks eval \
-        --checkpoint checkpoints/variant_a/ppo_final.pt \
+        --checkpoint checkpoints/variant_a/ma_ca_ppo_final_agent_CDUCAB.pth \
         --n_episodes 5
 """
 
@@ -33,9 +32,29 @@ import torch
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
-from optimal_dc.ML_algos.ppo import PPO
-from optimal_dc.ML_algos.evaluate import evaluate_policy, print_comparison_table
-from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import SmallFrontierModel_v3
+from optimal_dc.ML_algos.sustainlc_baselines import MA_CA_PPO, MH_MA_CA_PPO
+from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import (
+    SmallFrontierModel_v3, MH_SmallFrontierModel_v3,
+)
+
+# algo name -> (env class, algorithm class). "ppo" (the in-repo unified stub) is
+# deliberately NOT listed: its update rule is a placeholder (policy_loss =
+# value_loss) and its env API is wrong — see the module docstring of ppo.py.
+ALGOS = {
+    "ma_ca_ppo": (SmallFrontierModel_v3, MA_CA_PPO),
+    "mh_ma_ca_ppo": (MH_SmallFrontierModel_v3, MH_MA_CA_PPO),
+}
+
+
+def build_env_and_agent(algo: str, config: dict, csv_path, disaggregator_version: str):
+    """Instantiate the algo's env variant + agent from one registry entry."""
+    if algo not in ALGOS:
+        raise ValueError(f"unknown algo {algo!r}; choose from {sorted(ALGOS)}")
+    env_cls, agent_cls = ALGOS[algo]
+    env = env_cls(csv_path=csv_path, disaggregator_version=disaggregator_version,
+                  use_reward_shaping=config.get("use_reward_shaping", "reward_shaping_v2"))
+    agent = agent_cls(config, env)
+    return env, agent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,18 +63,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: int, seed: int = 0):
+def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: int,
+                    seed: int = 0, algo: str = "ma_ca_ppo"):
     """
-    Train variant A (Frontier + regime-A synthetic).
+    Train variant A (Frontier CSV data source).
 
     Args:
         config_path: path to hyperparameter YAML
         output_dir: checkpoint directory
-        n_steps: total training steps
+        n_steps: total training steps (sustain-lc used 3M for MA, 5M for MH)
         seed: random seed
+        algo: "ma_ca_ppo" | "mh_ma_ca_ppo" (the two sustain-lc baselines)
     """
     logger.info("="*80)
-    logger.info("VARIANT A TRAINING: Frontier CSV + Regime-A Synthetic")
+    logger.info(f"VARIANT A TRAINING: {algo} on Frontier CSV")
     logger.info("="*80)
 
     output_dir = Path(output_dir)
@@ -74,40 +95,32 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    # Create environment with pluggable CSV path and disaggregator
-    logger.info("\nInitializing FrontierEnv_v3...")
+    # Create environment + agent from the algo registry
     csv_path = Path(config.get("csv_path", "optimal_dc/external/sustain-lc/input_04-07-24.csv"))
     if not csv_path.is_absolute():
         csv_path = _REPO_ROOT / csv_path
     disaggregator_version = config.get("disaggregator_version", "v3")
 
-    env = SmallFrontierModel_v3(
-        csv_path=csv_path,
-        disaggregator_version=disaggregator_version,
-    )
+    env, agent = build_env_and_agent(algo, config, csv_path, disaggregator_version)
     logger.info(f"Data source: {csv_path} (disaggregator: {disaggregator_version})")
-
-    # Create algorithm
-    logger.info("Creating PPO agent...")
-    agent = PPO(config, env)
     agent.setup_checkpointing(output_dir)
 
     # Train
     logger.info(f"\nTraining for {n_steps} steps...")
     try:
-        train_log = agent.learn(env, n_steps=n_steps, eval_interval=10000)
+        agent.learn(env, n_steps=n_steps)
         logger.info("Training complete!")
     except KeyboardInterrupt:
         logger.info("Training interrupted")
 
     # Save checkpoint
-    final_checkpoint = agent.save_checkpoint("ppo_final")
+    final_checkpoint = agent.save_checkpoint(f"{algo}_final")
     logger.info(f"Saved: {final_checkpoint}")
 
     # Save metadata
     metadata = {
-        "variant": "a_frontier_regime_a",
-        "algorithm": "ppo",
+        "variant": "a_frontier",
+        "algorithm": algo,
         "n_steps": n_steps,
         "seed": seed,
         "config": str(config_path),
@@ -145,7 +158,7 @@ def eval_variant_a(checkpoint_path: str | Path, n_episodes: int = 5):
     with open(config_path) as f:
         config = json.load(f)
 
-    # Load metadata to retrieve data source and disaggregator
+    # Load metadata to retrieve algo, data source, and disaggregator
     metadata_path = checkpoint_path.parent / "metadata.json"
     metadata = {}
     if metadata_path.exists():
@@ -155,23 +168,19 @@ def eval_variant_a(checkpoint_path: str | Path, n_episodes: int = 5):
     logger.info(f"Checkpoint: {checkpoint_path}")
     logger.info(f"Config: {config_path}")
 
-    # Create environment and agent with same data source
+    # Create environment and agent with same algo + data source
+    algo = metadata.get("algorithm", "ma_ca_ppo")
     csv_path = Path(metadata.get("data_source", "optimal_dc/external/sustain-lc/input_04-07-24.csv"))
     if not csv_path.is_absolute():
         csv_path = _REPO_ROOT / csv_path
     disaggregator_version = metadata.get("disaggregator", "v3")
 
-    env = SmallFrontierModel_v3(
-        csv_path=csv_path,
-        disaggregator_version=disaggregator_version,
-    )
-
-    agent = PPO(config, env)
+    env, agent = build_env_and_agent(algo, config, csv_path, disaggregator_version)
     agent.load_checkpoint(checkpoint_path)
 
     # Evaluate
     logger.info(f"\nEvaluating over {n_episodes} episodes...")
-    summary = evaluate_policy(agent, env, n_episodes=n_episodes, deterministic=True)
+    summary = agent.evaluate(env, n_episodes=n_episodes, deterministic=True)
 
     # Print results
     logger.info("\n" + "="*80)
@@ -224,8 +233,14 @@ def main():
         default=0,
         help="Random seed"
     )
+    train_parser.add_argument(
+        "--algo",
+        choices=sorted(ALGOS),
+        default="ma_ca_ppo",
+        help="Which sustain-lc baseline to train (default: ma_ca_ppo)"
+    )
     train_parser.set_defaults(func=lambda args: train_variant_a(
-        args.config, args.output, args.n_steps, args.seed
+        args.config, args.output, args.n_steps, args.seed, args.algo
     ))
 
     # Eval subcommand
@@ -234,7 +249,7 @@ def main():
         "--checkpoint",
         type=Path,
         required=True,
-        help="Path to ppo_final.pt"
+        help="Path to the <algo>_final_agent_CDUCAB.pth of a saved pair"
     )
     eval_parser.add_argument(
         "--n_episodes",

@@ -64,10 +64,18 @@ BOUNDS = [
 ]
 
 
-def _theta_to_config(x: np.ndarray, spec: dict) -> WorkloadConfig:
-    """Decode a DE vector into a WorkloadConfig, deriving lambda from the mean."""
+def _theta_to_config(x: np.ndarray, spec: dict,
+                     frozen: dict | None = None) -> WorkloadConfig:
+    """Decode a DE vector into a WorkloadConfig, deriving lambda from the mean.
+
+    frozen: {knob_name: value in natural units} -- knobs REMOVED from the DE
+    vector and pinned (used by the held-out-statistics check, where knobs
+    identified only by held-out stats must not be searched)."""
+    frozen = frozen or {}
+    free = [b for b in BOUNDS if b[0] not in frozen]
     v = {name: (np.exp(xi) if lg else xi)
-         for (name, _lo, _hi, lg), xi in zip(BOUNDS, x)}
+         for (name, _lo, _hi, lg), xi in zip(free, x)}
+    v.update(frozen)
     marg = spec["marginal"]
     floor = float(marg["idle_floor_W"])
     p_mean = float(marg["busy_level_W"]) - floor
@@ -98,20 +106,44 @@ def _encode(cfg_values: dict) -> np.ndarray:
                      for n, _lo, _hi, lg in BOUNDS])
 
 
-def _objective(x: np.ndarray, spec: dict, seeds: range) -> float:
+def _q_subset(rep, fit_stats: set | None):
+    """(Q_feasible, Q_faithful) over the named checks only (None = all).
+    The held-out-statistics check scores DE on fitted checks alone; held-out
+    checks must contribute NOTHING to the search objective."""
+    cs = [c for c in rep.checks if fit_stats is None or c.name in fit_stats]
+    return (float(sum(c.feas_dev ** 2 for c in cs)),
+            float(sum(c.norm_dev ** 2 for c in cs)))
+
+
+def _pass_rate_subset(reports, fit_stats: set | None):
+    """Trace-tier pass rate counting only the named checks (None = all).
+    Filtering here matters: the gate term would otherwise leak held-out stats
+    into the objective through the pass-rate."""
+    def ok(r):
+        return all(c.passed for c in r.checks
+                   if c.tier == "trace" and (fit_stats is None or c.name in fit_stats))
+    return sum(ok(r) for r in reports) / len(reports)
+
+
+def _objective(x: np.ndarray, spec: dict, seeds: range,
+               frozen: dict | None = None, fit_stats: set | None = None) -> float:
     """Ensemble feasibility + faithfulness tie-break + trace-tier gate shortfall.
 
     The gate term (squared shortfall below the 0.8 target, weight 1.0) makes DE
     optimize the actual ship criterion, not only the ensemble bias -- CRN keeps
-    the rate deterministic per theta so the term is a valid objective."""
+    the rate deterministic per theta so the term is a valid objective.
+    With fit_stats given, every term (ensemble Q AND the gate rate) is computed
+    over the fitted checks only."""
     try:
-        cfg = _theta_to_config(x, spec)
+        cfg = _theta_to_config(x, spec, frozen)
     except ValueError:          # e.g. job_size mean out of (0,1] at extreme a/b
         return 1e6
     traces = [generate(cfg, seed=s) for s in seeds]
     rep = validate_ensemble(traces, spec)
-    rate, _ = pass_rate(traces, spec)
-    return (rep.distance_feasible + 0.01 * rep.distance_faithful
+    q_feas, q_faith = _q_subset(rep, fit_stats)
+    _rate_all, reports = pass_rate(traces, spec)
+    rate = _pass_rate_subset(reports, fit_stats)
+    return (q_feas + 0.01 * q_faith
             + max(0.0, 0.9 - rate) ** 2)  # gate margin term. NOTE: DE#4 tried 4x weight/0.95 target -> WORSE (traded ensemble feasibility, gate still 40%): ensemble + per-seed tau/corr floors + 80% gate are jointly unreachable at ~30 jobs/day (Pareto frontier confirmed)
 
 

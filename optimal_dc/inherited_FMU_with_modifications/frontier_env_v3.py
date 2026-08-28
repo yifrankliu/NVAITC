@@ -22,8 +22,12 @@ for _p in (str(_REPO_ROOT), str(_SUSTAIN_LC)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import functools
+
 import frontier_env as _frontier_env_module
 from frontier_env import SmallFrontierModel
+import mh_frontier_env as _mh_frontier_env_module
+from mh_frontier_env import MH_SmallFrontierModel
 
 from optimal_dc.inherited_FMU_with_modifications.exogenous_generators import create_exogenous_generator
 
@@ -109,6 +113,39 @@ class SmallFrontierModel_v3(SmallFrontierModel):
     # No need to override other methods—they're inherited from parent
     # The exogenous variable is fetched via get_exogenous_var() in step(),
     # which we didn't override, so it uses the same interface
+
+
+class MH_SmallFrontierModel_v3(MH_SmallFrontierModel):
+    """
+    Multi-head env wrapper (split top-level/valve-level CDU action space, the
+    MH MA CA-PPO baseline's env) with pluggable data source + disaggregator.
+
+    The upstream MH_SmallFrontierModel builds its inner env by calling the
+    module-level SmallFrontierModel symbol, so we temporarily rebind that
+    symbol to a SmallFrontierModel_v3 partial while the parent constructor
+    runs — same pattern as the EXOGENOUS_VAR_PATH patch. Upstream defaults
+    (subsample_rate=40, do_valve_softmax=False) are preserved by the parent.
+    """
+
+    def __init__(self,
+                 csv_path,
+                 disaggregator_version="v3",
+                 Towb_offset_in_K=15.0,
+                 **kwargs):
+        _orig = _mh_frontier_env_module.SmallFrontierModel
+        _mh_frontier_env_module.SmallFrontierModel = functools.partial(
+            SmallFrontierModel_v3,
+            csv_path=csv_path,
+            disaggregator_version=disaggregator_version,
+            Towb_offset_in_K=Towb_offset_in_K,
+        )
+        try:
+            super().__init__(**kwargs)
+        finally:
+            _mh_frontier_env_module.SmallFrontierModel = _orig
+
+        self.csv_path = self.env.csv_path
+        self.disaggregator_version = self.env.disaggregator_version
 
 
 # Convenience aliases for different disaggregators

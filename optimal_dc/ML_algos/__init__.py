@@ -9,11 +9,14 @@ The input/output contract is defined in io_contract.py:
   - Output: normalized actions for 5 CDU-cabinets + 1 cooling tower
 """
 
-# PPO/BaseAlgorithm need torch; import them lazily (PEP 562) so numpy-only
-# consumers (data_loader, io_contract) work in envs without torch installed.
-_LAZY = {"BaseAlgorithm": ".base_algorithm", "PPO": ".ppo"}
+from .base_algorithm import BaseAlgorithm  # numpy-only, safe to import eagerly
 
-__all__ = ["BaseAlgorithm", "PPO"]
+# The baselines need torch (and pull in the sustain-lc submodule); import them
+# lazily (PEP 562) so numpy-only consumers (data_loader, io_contract) work in
+# envs without torch installed.
+_LAZY = {"MA_CA_PPO": ".sustainlc_baselines", "MH_MA_CA_PPO": ".sustainlc_baselines"}
+
+__all__ = ["BaseAlgorithm", "MA_CA_PPO", "MH_MA_CA_PPO"]
 
 
 def __getattr__(name):

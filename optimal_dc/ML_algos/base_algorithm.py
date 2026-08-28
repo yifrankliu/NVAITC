@@ -5,7 +5,6 @@ Provides common functionality: environment setup, logging, checkpointing,
 evaluation. Concrete algorithms (PPO, SAC) inherit from this.
 """
 
-import numpy as np
 from pathlib import Path
 import json
 from typing import Dict, Tuple, Any
@@ -86,42 +85,14 @@ class BaseAlgorithm:
 
     def evaluate(self, eval_env, n_episodes: int = 5, deterministic: bool = True) -> dict:
         """
-        Run policy on evaluation environment.
+        Run the policy on an evaluation environment and return summary metrics.
 
-        Returns metrics: mean_return, mean_episode_length, constraint_violations
+        Subclasses implement this against the REAL env API: reset() returns the
+        obs dict only, step() returns a 4-tuple (obs, reward_dict, done_dict,
+        info) where info holds the raw (unscaled) observations. See
+        sustainlc_baselines for the reference implementation.
         """
-        episode_returns = []
-        episode_lengths = []
-        total_violations = 0
-
-        for ep in range(n_episodes):
-            obs, info = eval_env.reset()
-            done = False
-            episode_return = 0.0
-            episode_length = 0
-            violations = 0
-
-            while not done:
-                action = self.predict(obs, deterministic=deterministic)
-                obs, reward, terminated, truncated, info = eval_env.step(action.to_dict())
-                done = terminated or truncated
-                episode_return += reward
-                episode_length += 1
-
-                # Track constraint violations (from info if available)
-                if "constraint_violations" in info:
-                    violations += info["constraint_violations"]
-
-            episode_returns.append(episode_return)
-            episode_lengths.append(episode_length)
-            total_violations += violations
-
-        return {
-            "mean_return": float(np.mean(episode_returns)),
-            "std_return": float(np.std(episode_returns)),
-            "mean_episode_length": float(np.mean(episode_lengths)),
-            "total_constraint_violations": int(total_violations),
-        }
+        raise NotImplementedError
 
     def predict(self, obs: dict, deterministic: bool = False):
         """

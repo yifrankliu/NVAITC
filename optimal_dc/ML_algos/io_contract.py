@@ -121,7 +121,7 @@ def normalize_observation_dict(obs_dict: dict) -> dict:
     This unpacks the Dict and flattens it for algorithms that prefer flat input.
 
     obs_dict: {'cdu-cabinet-1': (6,), ..., 'cooling-tower-1': (4,)}
-    returns: (30,) normalized flat observation
+    returns: (34,) normalized flat observation (5 cabinets x 6 + 4 CT dims)
     """
     cabinet_obs = []
     for i in range(1, 6):

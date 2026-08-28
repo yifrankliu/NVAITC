@@ -1,37 +1,24 @@
-# Variant A: Frontier CSV only + regime-A synthetic
+# Variant A: real Frontier CSV, v3 (/9) disaggregator
 #
-# Ablation baseline: what's achievable with current pipeline
-# Data: 16h real Frontier + regime-A synthetic for data augmentation
-# Objective: establish single-cluster baseline
+# Baseline variant: establish single-cluster performance on the real day.
+# Train with:  python -m optimal_dc.ML_algos.benchmarks train --algo ma_ca_ppo \
+#                --config optimal_dc/ML_algos/config/variant_a_frontier.yaml ...
 
-# Inherit defaults
-inherit: "default.yaml"
+variant: "a_frontier"
+description: "Frontier CSV (real, 1 day 2024-04-07), v3 /9 disaggregation"
 
-# Variant-specific overrides
-variant: "a_frontier_only"
-description: "Frontier CSV (real, 1 day) + regime-A synthetic (extended)"
+seed: 0
+use_reward_shaping: "reward_shaping_v2"
 
-# Data pipeline (read by benchmarks.py; paths relative to the repo root NVAITC/)
+# Data pipeline (read by benchmarks.py; relative paths resolve against NVAITC/)
 csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
 disaggregator_version: "v3"
 
-# Data sources (aspirational schema — not yet consumed by any script)
-data_sources:
-  - type: "frontier_csv"
-    path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
-    split: [0.67, 0.33]  # 16h train, 8h eval
-  - type: "regime_a_synthetic"
-    config_path: "optimal_dc/workload_gen_pipeline/spec/regime_A_calib.json"
-    n_synthetic_days: 2  # extend training with regime-A
+# sustain-lc hyperparameter overrides go here (see config/default.yaml for the
+# reference list); leave empty to train with the exact upstream values.
 
-stacking: "regime_a_synthetic"
-
-# Network tuning (can experiment)
-hidden_sizes: [256, 256]
-learning_rate: 3.0e-4
-
-# Training specifics
-n_total_steps: 500_000  # shorter for variant A
-
-# Checkpoints will be saved to:
-# optimal_dc/ML_algos/checkpoints/variant_a/ppo_frontier_seed0/
+# FUTURE (not yet consumed by any script): real+synthetic stacking via
+# data_loader.load_data_variant_a — the delivered synthetic days in
+# workload_gen_pipeline/synth_data/ are drop-in CSVs in the meantime.
+# n_synthetic_days: 2
+# stacking: "regime_a_synthetic"

@@ -1,0 +1,149 @@
+{
+  "idle_floor_W": 253463.4682873955,
+  "per_rack_scale": [
+    1.0076425870423793,
+    1.0041747700660366,
+    0.9923240467234329,
+    0.9938730317728622,
+    1.0375132899599975,
+    0.9975410972972578,
+    1.026019361889152,
+    0.99469731527665,
+    1.054779259607378,
+    1.0286298887589185,
+    1.048695816053622,
+    1.034143487694021,
+    0.989917544581299,
+    0.6518762212763942,
+    1.0296872691335501,
+    0.9766745649152838,
+    0.9645176595880489,
+    1.0172013139996967,
+    1.0081571522629165,
+    0.986342438157435,
+    1.0036414388189396,
+    1.0516042042804743,
+    1.0248708929475108,
+    1.0557207163983697,
+    1.0197546314983728
+  ],
+  "job_power": {
+    "family": "normal",
+    "params": {
+      "mean": 755920.976054216,
+      "std": 31517.329440085745
+    }
+  },
+  "arrival_rate_per_s": 0.00013821228759139183,
+  "duration": {
+    "family": "lognormal",
+    "params": {
+      "mu": 8.193853798003847,
+      "sigma": 0.5780683651697336
+    }
+  },
+  "burstiness": 0.0,
+  "discipline": "queue",
+  "ramp_time_s": 62.75535949553751,
+  "wander_std_W": 7846.165924627081,
+  "wander_phi": 0.707911874300165,
+  "wander_shared_frac": 0.5,
+  "job_size": {
+    "family": "beta",
+    "params": {
+      "a": 40.0,
+      "b": 1.5
+    }
+  },
+  "placement": "scattered",
+  "noise_amp_W": 3171.608232895109,
+  "_provenance": {
+    "method": "held-out-statistics check (overidentification), SPLIT 1: cross-rack facet",
+    "held_out": [
+      "offdiag_corr_mean",
+      "pc1_var_share",
+      "ramp_sync_ratio"
+    ],
+    "frozen_knobs": {
+      "size_a": 40.0,
+      "size_b": 1.5,
+      "wander_shared_frac": 0.5
+    },
+    "frozen_rationale": {
+      "size": "pre-calibration analytic prior beta(40,1.5): capability jobs span most of the machine (see leakage caveat in module docstring)",
+      "wander_shared_frac": "max-entropy midpoint of [0,1]"
+    },
+    "fit_stats": [
+      "autocorr_tau_steps",
+      "per_rack_mean_dev",
+      "pooled_mix_dev",
+      "pooled_modes_dev",
+      "rack_ramp_abs_mean_W",
+      "rack_ramp_excess_kurt",
+      "total_max_W",
+      "total_mean_W",
+      "total_ramp_excess_kurt"
+    ],
+    "pass_criterion": "existing spec tolerance bands, ensemble over fresh gate seeds",
+    "verdict_pass": false,
+    "held_out_ensemble_values": {
+      "pc1_var_share": 0.9221347090655609,
+      "ramp_sync_ratio": 15.76858667053754,
+      "offdiag_corr_mean": 0.9136135489793723
+    },
+    "held_out_targets": {
+      "pc1_var_share": 0.9941936700299516,
+      "ramp_sync_ratio": 17.66484037076798,
+      "offdiag_corr_mean": 0.9939488695743146
+    },
+    "held_out_Q_feasible": 0.007848602475622997,
+    "held_out_per_seed_pass_rate": 0.0,
+    "search_Q_fit": 0.1126517312792016,
+    "n_evals": 189,
+    "n_seeds_objective": 32,
+    "gate_seeds": [
+      1000,
+      1001,
+      1002,
+      1003,
+      1004,
+      1005,
+      1006,
+      1007,
+      1008,
+      1009,
+      1010,
+      1011,
+      1012,
+      1013,
+      1014,
+      1015,
+      1016,
+      1017,
+      1018,
+      1019,
+      1020,
+      1021,
+      1022,
+      1023,
+      1024,
+      1025,
+      1026,
+      1027,
+      1028,
+      1029,
+      1030,
+      1031,
+      1032,
+      1033,
+      1034,
+      1035,
+      1036,
+      1037,
+      1038,
+      1039
+    ],
+    "quick": true,
+    "date": "2026-08-28"
+  }
+}

@@ -1,219 +1,88 @@
 # ML Algorithms: Datacenter Cooling Control via RL
 
-Training suite for RL algorithms (PPO, SAC) on FrontierEnv with preprocessed exogenous traces.
+Training suite for the sustain-lc RL baselines on the v3 pluggable-data envs
+(real Frontier CSV or delivered synthetic regime-A days, ÷9 disaggregation).
 
-## Input/Output Contract
+## Algorithms
 
-**See `io_contract.py` for the stable interface.**
+The two RL baselines sustain-lc ships, reused from the submodule (no copies)
+and wired into this repo's env/data plumbing — see `sustainlc_baselines.py`:
 
-### Input: Exogenous Trace
-- **Shape:** `(T, 16)` array (T timesteps, 16 channels)
-- **Columns 0-14:** Blade-group power (watts), from disaggregator.py
-- **Column 15:** Wet-bulb temperature (kelvin)
-- **Resolution:** 15s per timestep (zero-order-hold)
-- **Units:** SI (watts, kelvin) — no normalization at input; algorithms normalize internally
+| `--algo` | CDUCAB agent | CT agent | Env |
+|---|---|---|---|
+| `ma_ca_ppo` | `CA_PPO`: continuous (5,) action, one net over 5 centralized cabinet actions | `CA_PPO` discrete-9 | `SmallFrontierModel_v3` |
+| `mh_ma_ca_ppo` | `MultiHead_CA_PPO`: top-level (2,) tanh-Gaussian + valve (3,) Dirichlet heads | `CA_PPO` discrete-9 | `MH_SmallFrontierModel_v3` (subsample 40, valve softmax off) |
 
-### Output: Normalized Actions
-- **Cabinet actions:** `(5, 5)` array, values in `[-1, 1]`
-  - 5 cabinets × 5 actions each (2 PID setpoints + 3 valve fractions)
-- **Cooling tower action:** integer in `[0, 8]` (discrete fan speed)
+Hyperparameter defaults are the exact upstream train-script values (ep_len 200,
+update every 1×/2× ep_len, K=50, γ=0.80, clip 0.2, lr 3e-4/1e-3, action-std
+0.6→0.1 at 0.05/250k, `reward_shaping_v2`); any config key of the same name
+overrides them.
 
-The contract is **independent of:**
-- Whether data is real (Frontier, OneAsia) or synthetic (regime-A, regime-B)
-- Which stacking mode was used (none, phase-shift, regime-A synthetic)
-- Column selection (first5, representative, etc.)
+A third, unified single-network baseline exists as Frank's
+`optimal_dc/unified_mlp_baseline.py` (Unified_PPO, 34-dim flat state) — not yet
+wrapped into this registry.
 
-Algorithms see only the `(T, 16)` trace and metadata for transparency.
+## Files
 
----
+- **`sustainlc_baselines.py`** — `MA_CA_PPO` / `MH_MA_CA_PPO` classes: faithful
+  training loops, buffer-free `predict()` (with deterministic mode),
+  physical-metrics `evaluate()` (warm-up discard, optional `t_max_K`),
+  per-agent checkpoint pairs compatible with the shipped preTrained weights
+  (`load_sustainlc_pretrained()`).
+- **`benchmarks.py`** — the CLI: `train` / `eval` subcommands, `ALGOS` registry.
+- **`base_algorithm.py`** — shared config/logging/checkpoint-dir scaffolding.
+- **`data_loader.py`** — CSV + synthetic loading, canonical ÷9 disaggregation
+  (delegates to `workload_gen_pipeline/disaggregator.py`). NOTE: the
+  variant-A stacking path is not yet consumed by `benchmarks.py` (open seam);
+  the env currently ingests a CSV directly.
+- **`io_contract.py`** — the documented data/action interface: (T, 16)
+  exogenous trace in, (5, 5) cabinet + discrete-9 CT actions out; flat
+  observation is **34-dim** (5×6 cabinet + 4 CT).
+- **`config/`** — YAML hyperparameters. `csv_path` and `disaggregator_version`
+  are the data-pipeline keys `benchmarks.py` reads (relative paths resolve
+  against the repo root `NVAITC/`).
 
-## Quick Start
-
-### 1. Training Variant A (Frontier only)
+## Usage
 
 ```bash
-cd /path/to/NVAITC
-
-python -m optimal_dc.ML_algos.train \
+# from NVAITC/  (ML_workspace conda env: torch + pyfmi + pyyaml)
+python -m optimal_dc.ML_algos.benchmarks train \
+  --algo ma_ca_ppo \
   --config optimal_dc/ML_algos/config/variant_a_frontier.yaml \
-  --output optimal_dc/ML_algos/checkpoints/variant_a/ \
-  --n_steps 500_000 \
-  --algo ppo \
-  --seed 0
+  --output optimal_dc/ML_algos/checkpoints/variant_a_ma \
+  --n_steps 3_000_000 --seed 0
+
+python -m optimal_dc.ML_algos.benchmarks eval \
+  --checkpoint optimal_dc/ML_algos/checkpoints/variant_a_ma/ma_ca_ppo_final_agent_CDUCAB.pth \
+  --n_episodes 5
 ```
 
-**Output:**
-```
-optimal_dc/ML_algos/checkpoints/variant_a/
-├── ppo_final.pt         # final trained weights
-├── config.json          # hyperparameters used
-├── metadata.json        # run metadata
-└── train.log           # training metrics
-```
+Checkpoints are per-agent pairs (`*_agent_CDUCAB.pth` + `*_agent_CT.pth`);
+`metadata.json` records algo, data source, and disaggregator version, and
+`eval` restores all three.
 
-### 2. Training Variant B (Frontier + OneAsia, when available)
+Upstream training budgets: 3M steps for MA (~18 h on an RTX 5060 laptop GPU;
+FMU stepping is CPU-bound), 5M for MH.
 
-```bash
-python -m optimal_dc.ML_algos.train \
-  --config optimal_dc/ML_algos/config/variant_b_oneasia.yaml \
-  --output optimal_dc/ML_algos/checkpoints/variant_b/ \
-  --n_steps 1_000_000 \
-  --algo ppo \
-  --seed 0
-```
+## Caveats
 
-### 3. Compare Ablation Results
+- The shipped preTrained weights were trained on v2 ÷15 data — evaluating them
+  on v3 ÷9 input is out-of-distribution. Retrain for ÷9 comparisons.
+- `evaluate()` discards a 10-step warm-up (the FMU's ~139 °C init transient)
+  and takes `t_max_K` with **no default**: the ÷15-era 313 K limit does not
+  transfer to the hotter ÷9 regime; set it from the ÷9 rule-based baseline.
+- TensorBoard logging is not ported; metrics go to the logger + `train_log`.
 
-```python
-# analysis/ablation_study.ipynb
-import numpy as np
-from optimal_dc.ML_algos import PPO
+## History
 
-# Load checkpoints
-agent_a = PPO(config_a, env)
-agent_a.load_checkpoint("optimal_dc/ML_algos/checkpoints/variant_a/ppo_final.pt")
-
-agent_b = PPO(config_b, env)
-agent_b.load_checkpoint("optimal_dc/ML_algos/checkpoints/variant_b/ppo_final.pt")
-
-# Evaluate on held-out real data
-eval_a = agent_a.evaluate(eval_env, n_episodes=10)
-eval_b = agent_b.evaluate(eval_env, n_episodes=10)
-
-print(f"Variant A mean return: {eval_a['mean_return']:.2f}")
-print(f"Variant B mean return: {eval_b['mean_return']:.2f}")
-print(f"Improvement: {(eval_b['mean_return'] - eval_a['mean_return']) / abs(eval_a['mean_return']) * 100:.1f}%")
-```
-
----
-
-## Architecture
-
-### Files
-
-- **`io_contract.py`**: Input/output interface (stable, never changes unless FMU changes)
-- **`base_algorithm.py`**: Abstract base class for all algorithms
-- **`ppo.py`**: PPO implementation (policy gradient with clipped objective)
-- **`train.py`**: Training script (loads config, creates env, trains agent)
-- **`config/`**: Hyperparameter configs
-  - `default.yaml`: Base settings
-  - `variant_a_frontier.yaml`: Ablation A (Frontier only)
-  - `variant_b_oneasia.yaml`: Ablation B (Frontier + OneAsia)
-
-### Network Architecture
-
-**PPONetwork:**
-```
-Input (30,)  [normalized flat obs]
-  ↓
-Backbone: MLP([256, 256])
-  ↓
-Policy Head: Linear(256 → 25 + 9)  [cabinet + tower logits]
-Value Head:  Linear(256 → 1)       [value estimate]
-```
-
-Cabinet actions are continuous (tanh-squashed); cooling tower is discrete (softmax).
-
----
-
-## Configuration
-
-All hyperparameters are in YAML configs. Key parameters:
-
-| Parameter | Default | Notes |
-|-----------|---------|-------|
-| `learning_rate` | 3e-4 | Adam learning rate |
-| `batch_size` | 64 | PPO minibatch size |
-| `n_epochs` | 10 | Policy update epochs per rollout |
-| `clip_ratio` | 0.2 | PPO clip range (ε in original paper) |
-| `entropy_coef` | 0.01 | Entropy bonus weight |
-| `gamma` | 0.99 | Discount factor |
-| `gae_lambda` | 0.95 | GAE variance-bias parameter |
-| `n_steps` | 2048 | Rollout length before update |
-
-**To override**, modify the YAML or pass `--config custom.yaml`.
-
----
-
-## Training Dynamics
-
-### Variant A (Frontier only, ~500k steps)
-- **Data:** 16h real Frontier + regime-A synthetic (2 days)
-- **Expected training time:** ~2-4 hours on GPU
-- **Expected return:** TBD (baseline)
-- **Use case:** Establish single-cluster performance; validates regime-A synthetic
-
-### Variant B (Frontier + OneAsia, ~1M steps, pending data)
-- **Data:** Frontier (real) + OneAsia (real, N days TBD)
-- **Expected training time:** ~4-8 hours on GPU
-- **Expected improvement over A:** TBD (hypothesis: ±5-15% better energy)
-- **Use case:** Multi-cluster validation; shows value of additional real data
-
----
-
-## Evaluation
-
-### Post-Training Metrics
-
-After training, evaluate the policy:
-
-```python
-from optimal_dc.ML_algos import PPO
-from optimal_dc.external.sustain_lc import FrontierEnv
-
-agent = PPO(config, env)
-agent.load_checkpoint("checkpoints/variant_a/ppo_final.pt")
-
-metrics = agent.evaluate(eval_env, n_episodes=10, deterministic=True)
-print(f"Mean return: {metrics['mean_return']:.2f}")
-print(f"Mean episode length: {metrics['mean_episode_length']:.0f}")
-print(f"Constraint violations: {metrics['total_constraint_violations']}")
-```
-
-### Energy Calculation
-
-Cooling energy is the primary metric:
-
-```
-Energy (kWh/day) = ∫ P_facility(t) dt / 3600
-                  = mean(facility_power_kW) * 24
-```
-
-This is tracked during rollout and reported in the reward.
-
----
-
-## Troubleshooting
-
-### Training is slow
-- Reduce `n_steps` for faster rollout, or increase `batch_size` for faster gradient updates
-- Ensure CUDA is available: `torch.cuda.is_available()`
-
-### Policy doesn't improve
-- Check reward function in FrontierEnv (is it actually incentivizing low energy?)
-- Increase `entropy_coef` to encourage exploration
-- Reduce `learning_rate` if gradients are too noisy
-
-### Out of memory (CUDA)
-- Reduce `batch_size` (64 → 32)
-- Reduce `hidden_sizes` ([256, 256] → [128, 128])
-- Use `--device cpu` (slow but works)
-
----
-
-## Future Work
-
-- [ ] Implement SAC (off-policy, potentially more sample-efficient)
-- [ ] Vectorized environments (parallel rollout collectors)
-- [ ] Model-based RL (dynamics prediction + planning)
-- [ ] Imitation learning initialization (bootstrap from model-predictive baseline)
-- [ ] Multi-agent extension (separate policy per cabinet for emergent control)
-
----
+A from-scratch unified `ppo.py` + `train.py` + `evaluate.py` scaffold was
+removed 2026-08-28: its update rule was a placeholder (no policy gradient),
+its env API was wrong (gymnasium 5-tuple vs the env's 4-tuple/dict), and its
+network input was 30-dim vs the actual 34-dim observation.
 
 ## References
 
-- **PPO:** Schulman et al., "Proximal Policy Optimization Algorithms" (2017)
-- **GAE:** Schulman et al., "High-Dimensional Continuous Control Using Generalized Advantage Estimation" (2016)
-- **sustain-lc:** HPE/ORNL LC-Opt baseline (https://github.com/HewlettPackard/sustain-lc)
-- **FrontierEnv:** FMU wrapper in `optimal_dc/external/sustain-lc/frontier_env.py`
+- **PPO:** Schulman et al., 2017
+- **sustain-lc / LC-Opt:** HPE+ORNL, arXiv:2511.00116 (NeurIPS 2025 D&B)
+- **Env:** `optimal_dc/external/sustain-lc/frontier_env.py` (+ v3 wrappers in
+  `optimal_dc/inherited_FMU_with_modifications/`)
