@@ -13,7 +13,7 @@ Outputs per trace (all sharing a base name):
                         (env.iter_exogenous_var swap, as v0 does).
   <name>_meta.json      provenance sidecar: config + seed, realized stats,
                         trace-tier validation verdict, scheduling-ledger
-                        metrics, and the disaggregation convention (/9 vs /15)
+                        metrics, and the disaggregation convention
                         -- no delivered file can silently mix regimes.
 
 Level conditioning (--mean-band): the two-tier acceptance certifies level only
@@ -22,14 +22,13 @@ at delivery: seeds are advanced until the realized daily mean lands in band
 (rejection sampling at delivery keeps the generative model + calibration
 unconditional and clean).
 
-Disaggregation convention: DEFAULT = /15 (sustain-lc lineage -- comparable
-with every existing run and baseline); pass --faithful for the /9 regime
-(source-verified plumbing; needs its own baseline pass -- see disaggregator.py).
+Disaggregation convention: /9 (/3 cabinets per CDU group x /3 branches), the
+single physically-derived magnitude -- see disaggregator.py. The old /15
+sustain-lc lineage is gone; anything produced under it is not comparable.
 
 Usage:
-    python -m workload_gen.deliver --seed 0
-    python -m workload_gen.deliver --seed 0 --mean-band 15.0,17.3 --out synth_data
-    python -m workload_gen.deliver --seed 0 --faithful     # /9 new regime
+    python -m workload_gen_pipeline.deliver --seed 0
+    python -m workload_gen_pipeline.deliver --seed 0 --mean-band 15.0,17.3 --out synth_data
 """
 
 from __future__ import annotations
@@ -126,7 +125,7 @@ def make_day(config: WorkloadConfig, seed: int, n_steps: int = 5761,
 
 def deliver(P: np.ndarray, jobs: list, used_seed: int, *, config_path: Path,
             out_dir: Path = _OUT, name: str | None = None, dt: float = 15.0,
-            compat_v0: bool = True, slice_mode="first5", wetbulb: str = "replay",
+            slice_mode="first5", wetbulb: str = "replay",
             spec_path: Path = _SPEC, extra_meta: dict | None = None) -> dict:
     """Write the three delivery files for one generated day. Returns the metadata."""
     out_dir = Path(out_dir)
@@ -147,7 +146,7 @@ def deliver(P: np.ndarray, jobs: list, used_seed: int, *, config_path: Path,
             w.writerow([t[i], *P[i].tolist(), towb[i]])
 
     # 2. FMU-ready exogenous trace
-    exo, disagg_meta = disaggregate(P, towb, compat_v0=compat_v0, slice_mode=slice_mode)
+    exo, disagg_meta = disaggregate(P, towb, slice_mode=slice_mode)
     exo_path = out_dir / f"{name}_exogenous.npy"
     np.save(exo_path, exo)
 
@@ -200,9 +199,6 @@ def main(argv=None):
     ap.add_argument("--require-pass", action="store_true",
                     help="only deliver a day passing every trace-tier spec check "
                          "(ABC accept step at delivery; ~2 seed tries expected)")
-    ap.add_argument("--faithful", action="store_true",
-                    help="faithful /9 magnitude (NEW thermal regime; needs its own "
-                         "baseline pass) instead of the default /15 lineage convention")
     ap.add_argument("--slice", default="first5", help="first5 | representative")
     ap.add_argument("--wetbulb", default="replay",
                     help="'replay' (real 2024-04-07 facility column, default) or "
@@ -216,7 +212,7 @@ def main(argv=None):
                                          require_pass=args.require_pass,
                                          spec_path=Path(args.spec))
     deliver(P, jobs, used_seed, config_path=Path(args.config), out_dir=Path(args.out),
-            name=args.name, compat_v0=not args.faithful, slice_mode=args.slice,
+            name=args.name, slice_mode=args.slice,
             wetbulb=args.wetbulb, spec_path=Path(args.spec),
             extra_meta={"mean_band_MW": band, "require_pass": args.require_pass,
                         "seeds_tried": tries})

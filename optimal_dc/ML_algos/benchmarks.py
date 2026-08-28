@@ -30,10 +30,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
-from optimal_dc.ML_algos.data_loader import load_data_variant_a
 from optimal_dc.ML_algos.ppo import PPO
 from optimal_dc.ML_algos.evaluate import evaluate_policy, print_comparison_table
-from optimal_dc.external.sustain_lc.frontier_env import FrontierEnv
+from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import SmallFrontierModel_v3, create_env_v3
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,25 +71,19 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    # Load data
-    logger.info("\nLoading data...")
-    data = load_data_variant_a(
-        n_synthetic_days=2,
-        train_frac=0.67,
-        stacking="regime_a_synthetic",
-        seed=seed,
-    )
-    logger.info(f"Data: {data['meta']['n_real_days']} real + {data['meta']['n_synthetic_days']} synthetic days")
-    logger.info(f"Training: {data['train']['steps']} steps")
-    logger.info(f"Eval: {data['eval']['steps']} steps")
+    # Create environment with pluggable CSV path and disaggregator
+    logger.info("\nInitializing FrontierEnv_v3...")
+    csv_path = config.get("csv_path", "optimal_dc/external/sustain-lc/input_04-07-24.csv")
+    disaggregator_version = config.get("disaggregator_version", "v3")
+    fmu_path = config.get("fmu_path")
 
-    # Create environment
-    logger.info("\nInitializing FrontierEnv...")
-    env = FrontierEnv(
-        fmu_path=config.get("fmu_path"),
+    env = SmallFrontierModel_v3(
+        fmu_path=fmu_path,
+        csv_path=csv_path,
+        disaggregator_version=disaggregator_version,
         max_steps=5761,
-        reward_fn="energy_only",
     )
+    logger.info(f"Data source: {csv_path} (disaggregator: v{disaggregator_version[-1]})")
 
     # Create algorithm
     logger.info("Creating PPO agent...")
@@ -117,7 +110,8 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
         "seed": seed,
         "config": config_path,
         "total_episodes": agent.total_episodes,
-        "data": data["meta"],
+        "data_source": csv_path,
+        "disaggregator": disaggregator_version,
         "checkpoint": str(final_checkpoint),
     }
     metadata_path = output_dir / "metadata.json"
@@ -149,14 +143,26 @@ def eval_variant_a(checkpoint_path: str | Path, n_episodes: int = 5):
     with open(config_path) as f:
         config = json.load(f)
 
+    # Load metadata to retrieve data source and disaggregator
+    metadata_path = checkpoint_path.parent / "metadata.json"
+    metadata = {}
+    if metadata_path.exists():
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+
     logger.info(f"Checkpoint: {checkpoint_path}")
     logger.info(f"Config: {config_path}")
 
-    # Create environment and agent
-    env = FrontierEnv(
-        fmu_path=config.get("fmu_path"),
+    # Create environment and agent with same data source
+    csv_path = metadata.get("data_source", "optimal_dc/external/sustain-lc/input_04-07-24.csv")
+    disaggregator_version = metadata.get("disaggregator", "v3")
+    fmu_path = config.get("fmu_path")
+
+    env = SmallFrontierModel_v3(
+        fmu_path=fmu_path,
+        csv_path=csv_path,
+        disaggregator_version=disaggregator_version,
         max_steps=5761,
-        reward_fn="energy_only",
     )
 
     agent = PPO(config, env)

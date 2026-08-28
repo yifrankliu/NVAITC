@@ -23,7 +23,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
 from optimal_dc.external.sustain_lc.frontier_env import FrontierEnv
-from optimal_dc.workload_gen import generate, validate, load_spec
+from optimal_dc.workload_gen_pipeline import generate, validate, load_spec
 from optimal_dc.ML_algos import PPO
 from optimal_dc.ML_algos.io_contract import ExogenousTrace
 

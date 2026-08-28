@@ -9,7 +9,7 @@ Public API:
     validate, compute_stats        -- per-trace accept test + stats      [validate.py]
     validate_ensemble, pass_rate   -- MSM objective + shipping gate      [validate.py]
     freeze                         -- re-freeze the spec from the day    [freeze.py]
-    disaggregate                   -- (T,25) -> FMU exogenous (/9|/15)   [disaggregator.py]
+    disaggregate                   -- (T,25) -> FMU exogenous (/9)      [disaggregator.py]
     calibrate                      -- MSM/DE search -> calib JSON        [calibrate.py]
     build_envelope                 -- year xlsx -> spec/envelope.json    [envelope.py]
     deliver                        -- delivery: CSV + .npy + sidecar     [deliver.py]

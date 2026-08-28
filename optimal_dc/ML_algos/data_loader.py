@@ -125,28 +125,28 @@ def generate_regime_a_synthetic(
         towb_syn: (T,) constant wet-bulb (Fahrenheit, typical ~60°F)
     """
     try:
-        from optimal_dc.workload_gen import generate, load_spec
+        from optimal_dc.workload_gen_pipeline import generate, load_spec
     except ImportError:
-        logger.error("workload_gen not importable; ensure PYTHONPATH includes optimal_dc")
+        logger.error("workload_gen_pipeline not importable; ensure PYTHONPATH includes optimal_dc")
         raise
 
     logger.info(f"Generating {n_days} synthetic regime-A days (seed={seed})")
 
-    spec_path = Path(__file__).parents[1] / "workload_gen/spec/regime_A.json"
+    spec_path = Path(__file__).parents[1] / "workload_gen_pipeline/spec/regime_A.json"
     spec = load_spec(spec_path)
 
     # Load calibrated config
-    config_path = Path(__file__).parents[1] / "workload_gen/spec/regime_A_calib.json"
+    config_path = Path(__file__).parents[1] / "workload_gen_pipeline/spec/regime_A_calib.json"
     if not config_path.exists():
         logger.warning(f"regime_A_calib.json not found at {config_path}; using regime_A_starting")
         # Fallback: use starting config (less tuned, but works for prototyping)
         # For now, we'll just generate with default regime_A
         # In production, regime_A_calib.json should exist after calibration runs
 
-        from optimal_dc.workload_gen.config import WorkloadConfig
+        from optimal_dc.workload_gen_pipeline.config import WorkloadConfig
         config = WorkloadConfig.from_spec(spec_path)
     else:
-        from optimal_dc.workload_gen.config import WorkloadConfig
+        from optimal_dc.workload_gen_pipeline.config import WorkloadConfig
         config = WorkloadConfig.from_json(config_path)
 
     # Generate N independent days
