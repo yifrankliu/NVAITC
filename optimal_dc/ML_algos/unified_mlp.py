@@ -89,10 +89,22 @@ class Unified_MLP(BaseAlgorithm):
 
     # ------------------------------------------------------------- inference
     def predict(self, obs: dict, deterministic: bool = False) -> dict:
-        """Action for one observation dict. select_action() also pushes to the
-        rollout buffers; outside learn() that is pollution, so clear them."""
-        cdu, ct = self.agent.select_action(flatten_state(obs))
-        for buf in self.agent.buffer_dict.values():
+        """Action for one observation dict, buffer-free (safe for eval).
+
+        deterministic=True bypasses the sampling distributions: CDU = the
+        actor's mean, CT = argmax over the categorical -- matching the
+        sustainlc baselines' eval convention."""
+        import torch
+        flat = flatten_state(obs)
+        if deterministic:
+            with torch.no_grad():
+                s = torch.FloatTensor(flat).to(next(
+                    self.agent.policy_old.cdu_actor.parameters()).device)
+                cdu = self.agent.policy_old.cdu_actor(s).reshape(5, 5).cpu().numpy()
+                ct = int(self.agent.policy_old.ct_actor(s).argmax().item())
+            return env_action(cdu, ct)
+        cdu, ct = self.agent.select_action(flat)
+        for buf in self.agent.buffer_dict.values():   # select_action pushes; eval must not pollute
             buf.clear()
         return env_action(cdu, ct)
 
