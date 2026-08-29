@@ -1,0 +1,29 @@
+# Variant A-synth: TRAIN ON SYNTHETIC regime-A days, hold the real day for eval.
+#
+# The train-on-synthetic / test-on-real protocol (2026-08-28 decision): every
+# episode reset draws a FRESH certified regime-A day (generate -> trace-tier
+# rejection-sample -> /9 disaggregate) at a uniform-random start offset, so the
+# policy trains on the workload DISTRIBUTION and the real 2024-04-07 trajectory
+# stays unseen until the pre-committed evaluation.
+#
+# Train with:  python -m optimal_dc.ML_algos.benchmarks train --algo ma_ca_ppo \
+#                --config optimal_dc/ML_algos/config/variant_a_synth.yaml ...
+
+variant: "a_synth"
+description: "Synthetic regime-A days (fresh certified day per episode), v3 /9; real day held out for eval"
+
+seed: 0
+use_reward_shaping: "reward_shaping_v2"
+
+# csv_path only feeds the env constructor's discarded generator; the sampler
+# below replaces the exogenous stream at every reset.
+csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
+disaggregator_version: "v3"
+
+# Per-reset synthetic day source (kwargs for ML_algos.data_loader.RegimeADaySampler).
+# wetbulb "replay" = the real day's facility wet-bulb column; swap in a pool of
+# "noaa:YYYY-MM-DD" entries to add the seasonal axis.
+synthetic_day_sampler:
+  seed: 0
+  wetbulb: "replay"
+  require_pass: true

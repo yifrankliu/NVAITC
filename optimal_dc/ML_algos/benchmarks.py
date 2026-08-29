@@ -33,6 +33,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
 from optimal_dc.ML_algos.sustainlc_baselines import MA_CA_PPO, MH_MA_CA_PPO
+from optimal_dc.ML_algos.unified_mlp import Unified_MLP
 from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import (
     SmallFrontierModel_v3, MH_SmallFrontierModel_v3,
 )
@@ -40,9 +41,11 @@ from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import (
 # algo name -> (env class, algorithm class). "ppo" (the in-repo unified stub) is
 # deliberately NOT listed: its update rule is a placeholder (policy_loss =
 # value_loss) and its env API is wrong — see the module docstring of ppo.py.
+# "unified_mlp" wraps the REAL June-2026 Unified_PPO (unified_mlp_baseline.py).
 ALGOS = {
     "ma_ca_ppo": (SmallFrontierModel_v3, MA_CA_PPO),
     "mh_ma_ca_ppo": (MH_SmallFrontierModel_v3, MH_MA_CA_PPO),
+    "unified_mlp": (SmallFrontierModel_v3, Unified_MLP),
 }
 
 
@@ -136,7 +139,7 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
 
     # Save metadata
     metadata = {
-        "variant": "a_frontier",
+        "variant": config.get("variant", "a_frontier"),
         "algorithm": algo,
         "n_steps": n_steps,
         "seed": seed,
