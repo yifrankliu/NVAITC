@@ -31,22 +31,22 @@
     "family": "normal",
     "params": {
       "mean": 755920.976054216,
-      "std": 31517.329440085745
+      "std": 8810.821700060264
     }
   },
-  "arrival_rate_per_s": 0.00013821228759139183,
+  "arrival_rate_per_s": 0.0002167971591011843,
   "duration": {
     "family": "lognormal",
     "params": {
-      "mu": 8.193853798003847,
-      "sigma": 0.5780683651697336
+      "mu": 7.847320894022639,
+      "sigma": 0.356210821633529
     }
   },
   "burstiness": 0.0,
   "discipline": "queue",
-  "ramp_time_s": 62.75535949553751,
-  "wander_std_W": 7846.165924627081,
-  "wander_phi": 0.707911874300165,
+  "ramp_time_s": 41.12351443136508,
+  "wander_std_W": 9260.565364752703,
+  "wander_phi": 0.7502406492825566,
   "wander_shared_frac": 0.5,
   "job_size": {
     "family": "beta",
@@ -56,7 +56,7 @@
     }
   },
   "placement": "scattered",
-  "noise_amp_W": 3171.608232895109,
+  "noise_amp_W": 2288.1627171662058,
   "_provenance": {
     "method": "held-out-statistics check (overidentification), SPLIT 1: cross-rack facet",
     "held_out": [
@@ -87,19 +87,19 @@
     "pass_criterion": "existing spec tolerance bands, ensemble over fresh gate seeds",
     "verdict_pass": false,
     "held_out_ensemble_values": {
-      "pc1_var_share": 0.9221347090655609,
-      "ramp_sync_ratio": 15.76858667053754,
-      "offdiag_corr_mean": 0.9136135489793723
+      "pc1_var_share": 0.9299388727388822,
+      "ramp_sync_ratio": 18.53822399436608,
+      "offdiag_corr_mean": 0.9245566783824476
     },
     "held_out_targets": {
       "pc1_var_share": 0.9941936700299516,
       "ramp_sync_ratio": 17.66484037076798,
       "offdiag_corr_mean": 0.9939488695743146
     },
-    "held_out_Q_feasible": 0.007848602475622997,
+    "held_out_Q_feasible": 0.005646978803436812,
     "held_out_per_seed_pass_rate": 0.0,
-    "search_Q_fit": 0.1126517312792016,
-    "n_evals": 189,
+    "search_Q_fit": 0.020745298803199808,
+    "n_evals": 3416,
     "n_seeds_objective": 32,
     "gate_seeds": [
       1000,
@@ -143,7 +143,7 @@
       1038,
       1039
     ],
-    "quick": true,
+    "quick": false,
     "date": "2026-08-28"
   }
 }

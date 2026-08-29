@@ -47,11 +47,28 @@ ALGOS = {
 
 
 def build_env_and_agent(algo: str, config: dict, csv_path, disaggregator_version: str):
-    """Instantiate the algo's env variant + agent from one registry entry."""
+    """Instantiate the algo's env variant + agent from one registry entry.
+
+    Train-on-synthetic: a `synthetic_day_sampler` dict in the config (kwargs
+    for RegimeADaySampler, e.g. {seed: 0, wetbulb: "replay", require_pass:
+    true}) attaches a per-reset day sampler -- every episode then starts on a
+    freshly generated certified regime-A day at a random offset, so the policy
+    trains on the workload DISTRIBUTION. Without it, behavior is unchanged
+    (static csv_path trace)."""
     if algo not in ALGOS:
         raise ValueError(f"unknown algo {algo!r}; choose from {sorted(ALGOS)}")
     env_cls, agent_cls = ALGOS[algo]
+
+    sampler_cfg = config.get("synthetic_day_sampler")
+    day_sampler = None
+    if sampler_cfg is not None:
+        from optimal_dc.ML_algos.data_loader import RegimeADaySampler
+        day_sampler = RegimeADaySampler(**sampler_cfg)
+        logger.info(f"Per-reset synthetic day sampler: {sampler_cfg}")
+
     env = env_cls(csv_path=csv_path, disaggregator_version=disaggregator_version,
+                  day_sampler=day_sampler,
+                  min_horizon=int(config.get("max_ep_len", 200)),
                   use_reward_shaping=config.get("use_reward_shaping", "reward_shaping_v2"))
     agent = agent_cls(config, env)
     return env, agent
@@ -129,6 +146,17 @@ def train_variant_a(config_path: str | Path, output_dir: str | Path, n_steps: in
         "disaggregator": disaggregator_version,
         "checkpoint": str(final_checkpoint),
     }
+    # provenance of the synthetic training distribution, if a sampler was used
+    inner = getattr(env, "env", env)          # MH wraps the real env
+    sampler = getattr(inner, "day_sampler", None)
+    if sampler is not None:
+        log = sampler.day_log
+        metadata["synthetic_day_sampler"] = {
+            **config.get("synthetic_day_sampler", {}),
+            "n_days_drawn": len(log),
+            "first_day": list(log[0]) if log else None,
+            "last_day": list(log[-1]) if log else None,
+        }
     metadata_path = output_dir / "metadata.json"
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)

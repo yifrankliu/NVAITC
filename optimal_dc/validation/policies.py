@@ -53,10 +53,198 @@ def make_constant_policy(cdu_vec, ct_action=CT_NEUTRAL):
 # CAVEAT: this STATIC-NOMINAL baseline is WEAKER than the LC-Opt paper's ASHRAE G36
 # "trim and respond" baseline (Appendix K of arXiv:2511.00116; not in released code), so
 # ΔE measured against it OVERSTATES the prize vs a good rule-based controller. For the
-# honest/comparable number, also implement G36 and report ΔE against both. See memory.
+# honest/comparable number, ALSO report ΔE against make_g36_policy() below.
 # --------------------------------------------------------------------------------
 BASELINE_CDU = make_cdu_vec(tsec_a=-0.20, dp_a=-0.615, valve_a=0.0)
 baseline_policy = make_constant_policy(BASELINE_CDU, ct_action=CT_NEUTRAL)
+
+
+# --------------------------------------------------------------------------------
+# G36 BASELINE — ASHRAE Guideline 36 "trim and respond", the LC-Opt paper's Case-1
+# baseline (arXiv:2511.00116 Appendix K, Algorithms 1 & 2). NOT in their released
+# code; reimplemented here from the appendix. Every DOCUMENTED constant is exact;
+# every UNDER-SPECIFIED choice is a constructor parameter recorded by describe()
+# (sweep those to bound E_G36 — the paper gives no values for them).
+#
+# Faithfulness boundary (state in any writeup):
+#   * Internal setpoint state follows the paper exactly, INCLUDING COOLANT_min=18 C;
+#     saturation happens only at actuation (env Tsec range is 20-40 C, so commands
+#     in [18, 20) C clip to 20 -- the a=-1 corner).
+#   * The env cannot set the CT LWT setpoint directly: its discrete action adds a
+#     delta in {-0.20..+0.20} K to the built-in wetbulb+10 F rule. G36's LWT target
+#     is projected onto the nearest reachable delta each step, so Algorithm 2
+#     mostly expresses itself as "pin to the coldest/warmest reachable offset".
+#   * "Server temperature" has no FMU counterpart (no blade temps exist): the proxy
+#     is each cabinet's max boundary-port temp. "Server utilization" is the
+#     cabinet's blade-power sum / util_capacity_W.
+#   * Wet-bulb seen by the policy INCLUDES the env's +15 K offset -- consistent, as
+#     the same offset value drives both the FMU's tower physics and the env's rule.
+#   * dp and valve splits are not part of G36; held at the static-nominal values.
+# --------------------------------------------------------------------------------
+
+# Mirror of frontier_env.variable_ranges for the obs entries unscaled here.
+_OBS_T_K = (273.15, 373.15)       # cabinet boundary temps + cell[1].waterSPTLvg
+_OBS_BLADE_W = (0.0, 0.34e6)      # ComputePowerBlade1..3
+_OBS_TOWB_K = (270.15, 373.15)    # Towb (Kelvin, +15 K env offset included)
+
+_CT_DELTAS_K = np.array([-0.20, -0.15, -0.10, -0.05, 0.0, 0.05, 0.10, 0.15, 0.20])
+_CT_RULE_OFFSET_K = 10.0 * 5.0 / 9.0    # env rule: LWT setpoint = Towb + 10 F
+
+
+def _unscale(x, lo, hi):
+    """Invert frontier_env.observation_mapper's [-1, 1] scaling."""
+    return lo + (np.asarray(x, dtype=float) + 1.0) / 2.0 * (hi - lo)
+
+
+class G36Policy:
+    """Stateful trim-and-respond controller. Build a FRESH instance per rollout
+    (make_g36_policy) -- reusing one across rollouts leaks setpoint state.
+
+    Documented Appendix-K constants (exact, do not tune):
+        coolant setpoint bounds [18, 30] C; trim +0.1 C; respond -0.3 C/request;
+        request threshold 2; approach min/optimal 2.8/3.5 C; LWT max 29.4 C.
+
+    Under-specified in the paper (constructor parameters, defaults declared):
+        interval_steps    control interval; paper says "typically 2-5 minutes";
+                          default 8 steps = 2 min at 15 s.
+        persistence_steps the "for 2 minutes" request condition; 8 steps = 2 min.
+        warning_C / critical_C  server-temp request thresholds (no values given);
+                          defaults 40 C (LC-Opt's own U_T compliance bound) / 45 C.
+        util_capacity_W   denominator of "utilization"; default 336 kW =
+                          3 branches x 112 kW (regime-A busy level ~1.01 MW per
+                          CDU group / 9), so busy ~= 100%.
+        init_coolant_C    paper initializes to the measured supply temp; Tsec
+                          supply is not in the obs dict, so default 28.0 C = the
+                          FMU nominal (== the measured value at a nominal start).
+    """
+
+    # Appendix-K documented constants (exact)
+    COOLANT_MIN_C = 18.0
+    COOLANT_MAX_C = 30.0
+    TRIM_C = 0.1
+    RESPOND_C = 0.3
+    REQUEST_THRESHOLD = 2
+    MIN_APPROACH_C = 2.8
+    OPTIMAL_APPROACH_C = 3.5
+    LWT_MAX_C = 29.4
+
+    def __init__(self, interval_steps=8, persistence_steps=8,
+                 warning_C=40.0, critical_C=45.0,
+                 util_capacity_W=3 * 112e3, util_threshold=0.85,
+                 init_coolant_C=28.0):
+        self.interval_steps = int(interval_steps)
+        self.persistence_steps = int(persistence_steps)
+        self.warning_C = float(warning_C)
+        self.critical_C = float(critical_C)
+        self.util_capacity_W = float(util_capacity_W)
+        self.util_threshold = float(util_threshold)
+        self.init_coolant_C = float(init_coolant_C)
+
+        self._coolant_sp_C = None          # set on first call
+        self._lwt_sp_C = None
+        self._above_crit = np.zeros(5, dtype=int)   # consecutive-step counters
+        self._above_warn = np.zeros(5, dtype=int)
+        self._temp_window = []             # last persistence_steps+1 temp vectors
+        self._tower_request = False        # Algorithm 2 hysteresis latch
+
+    # ------------------------------------------------------------- Algorithm 1
+    def _update_coolant(self, temps_C, powers_W):
+        rising = temps_C > self._temp_window[0]     # vs one persistence window ago
+        util = powers_W / self.util_capacity_W
+        req = np.zeros(5, dtype=int)
+        req[self._above_crit >= self.persistence_steps] = 3
+        req[(req == 0) & (self._above_warn >= self.persistence_steps)] = 2
+        req[(req == 0) & (util > self.util_threshold) & rising] = 1
+        total = int(req.sum())
+        if total == 0:
+            self._coolant_sp_C += self.TRIM_C
+        elif total >= self.REQUEST_THRESHOLD:
+            self._coolant_sp_C -= self.RESPOND_C * total
+        # total == 1: below threshold -> hold (per Algorithm 1)
+        self._coolant_sp_C = float(np.clip(self._coolant_sp_C,
+                                           self.COOLANT_MIN_C, self.COOLANT_MAX_C))
+
+    # ------------------------------------------------------------- Algorithm 2
+    def _update_lwt(self, wb_C):
+        # request latch: on below 1.05*min, held until above 1.15*min (Celsius
+        # multiples exactly as written in the paper)
+        if self._tower_request:
+            if self._coolant_sp_C > 1.15 * self.COOLANT_MIN_C:
+                self._tower_request = False
+        elif self._coolant_sp_C < 1.05 * self.COOLANT_MIN_C:
+            self._tower_request = True
+
+        if self._tower_request:
+            self._lwt_sp_C -= self.RESPOND_C
+        else:
+            self._lwt_sp_C += self.TRIM_C
+
+        lwt_optimal = wb_C + self.OPTIMAL_APPROACH_C
+        if self._lwt_sp_C < lwt_optimal - 0.5:
+            self._lwt_sp_C = lwt_optimal          # wet-bulb reset override
+        lwt_min = wb_C + self.MIN_APPROACH_C
+        self._lwt_sp_C = max(lwt_min, min(self.LWT_MAX_C, self._lwt_sp_C))
+
+    # ---------------------------------------------------------------- __call__
+    def __call__(self, obs, t_s, step_idx):
+        temps_C = np.array([_unscale(obs[k][0:3], *_OBS_T_K).max()
+                            for k in CABINET_KEYS]) - 273.15
+        powers_W = np.array([_unscale(obs[k][3:6], *_OBS_BLADE_W).sum()
+                             for k in CABINET_KEYS])
+        wb_K = float(_unscale(obs["cooling-tower-1"][3], *_OBS_TOWB_K))
+
+        if self._coolant_sp_C is None:      # first call: initialize from plant state
+            self._coolant_sp_C = self.init_coolant_C
+            self._lwt_sp_C = float(_unscale(obs["cooling-tower-1"][2], *_OBS_T_K)) - 273.15
+
+        self._above_crit = np.where(temps_C > self.critical_C, self._above_crit + 1, 0)
+        self._above_warn = np.where(temps_C > self.warning_C, self._above_warn + 1, 0)
+        self._temp_window.append(temps_C)
+        if len(self._temp_window) > self.persistence_steps + 1:
+            self._temp_window.pop(0)
+
+        if step_idx > 0 and step_idx % self.interval_steps == 0:
+            self._update_coolant(temps_C, powers_W)
+            self._update_lwt(wb_C=wb_K - 273.15)
+
+        # actuation: project both setpoints onto the env's action space
+        tsec_a = float(np.clip(2.0 * (self._coolant_sp_C - 20.0) / 20.0 - 1.0, -1.0, 1.0))
+        delta_K = (self._lwt_sp_C + 273.15) - (wb_K + _CT_RULE_OFFSET_K)
+        ct_idx = int(np.argmin(np.abs(_CT_DELTAS_K - delta_K)))
+        cdu = make_cdu_vec(tsec_a=tsec_a, dp_a=float(BASELINE_CDU[1]), valve_a=0.0)
+        return _action_dict(cdu, ct_idx)
+
+    def describe(self):
+        """Full parameterization for the provenance sidecar: documented constants
+        + the declared choices for everything the paper leaves unspecified."""
+        return {
+            "policy": "G36 trim-and-respond (arXiv:2511.00116 Appendix K, Algs 1-2)",
+            "documented": {
+                "coolant_bounds_C": [self.COOLANT_MIN_C, self.COOLANT_MAX_C],
+                "trim_C": self.TRIM_C, "respond_C_per_request": self.RESPOND_C,
+                "request_threshold": self.REQUEST_THRESHOLD,
+                "approach_min_optimal_C": [self.MIN_APPROACH_C, self.OPTIMAL_APPROACH_C],
+                "lwt_max_C": self.LWT_MAX_C,
+            },
+            "declared_choices": {
+                "interval_steps": self.interval_steps,
+                "persistence_steps": self.persistence_steps,
+                "warning_C": self.warning_C, "critical_C": self.critical_C,
+                "util_capacity_W": self.util_capacity_W,
+                "util_threshold": self.util_threshold,
+                "init_coolant_C": self.init_coolant_C,
+                "server_temp_proxy": "max of cabinet boundary-port temps",
+                "utilization_proxy": "blade-power sum / util_capacity_W",
+                "tsec_actuation": "clipped to env range [20, 40] C",
+                "lwt_actuation": "nearest discrete delta in +/-0.20 K of wetbulb+10F rule",
+                "dp_valves": "static-nominal (not governed by G36)",
+            },
+        }
+
+
+def make_g36_policy(**kwargs):
+    """Fresh stateful G36 instance for one rollout. kwargs -> G36Policy(...)."""
+    return G36Policy(**kwargs)
 
 
 # --------------------------------------------------------------------------------

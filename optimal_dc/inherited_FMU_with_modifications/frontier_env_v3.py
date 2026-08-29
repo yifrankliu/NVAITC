@@ -6,7 +6,17 @@ Extends frontier_env.py with:
   - Pluggable disaggregator version selection (v1, v2, v3)
   - Clean separation via exogenous_generators module
 
-No code duplication: only overrides __init__ to swap disaggregator.
+No code duplication: only overrides __init__ (disaggregator swap) and reset()
+(optional per-reset synthetic-day resampling).
+
+OBSERVATION NORMALIZATION UNDER /9 -- VERIFIED, NO CHANGES NEEDED (2026-08-28):
+an instrumented full 24 h baseline pass on the /9 real day showed 0 of 34
+observation variables breach their `variable_ranges` post-warmup (temps peak
+56.75 C inside the [0, 100] C bands; blade power maxes 121 kW vs the 340 kW
+cap). Only the action-independent warm-up transient (~139 C, first 30 min)
+exceeds the temperature ranges -- pre-existing at /15, excluded by the
+standard WARMUP_STEPS=120 window. Re-verify if the exogenous magnitude
+convention or an aggressive trained policy changes the operating envelope.
 """
 
 import sys
@@ -24,12 +34,22 @@ for _p in (str(_REPO_ROOT), str(_SUSTAIN_LC)):
 
 import functools
 
+import numpy as np
+
 import frontier_env as _frontier_env_module
 from frontier_env import SmallFrontierModel
 import mh_frontier_env as _mh_frontier_env_module
 from mh_frontier_env import MH_SmallFrontierModel
 
 from optimal_dc.inherited_FMU_with_modifications.exogenous_generators import create_exogenous_generator
+
+
+def _cyclic_rows(trace: np.ndarray, offset: int = 0):
+    """Infinite row iterator over a (T, 16) trace, starting at `offset`, wrapping."""
+    i = offset % len(trace)
+    while True:
+        yield trace[i]
+        i = (i + 1) % len(trace)
 
 
 class SmallFrontierModel_v3(SmallFrontierModel):
@@ -65,6 +85,9 @@ class SmallFrontierModel_v3(SmallFrontierModel):
                  disaggregator_version="v3",
                  Towb_offset_in_K=15.0,
                  subsample_rate=1,
+                 day_sampler=None,
+                 sampler_seed=0,
+                 min_horizon=200,
                  **kwargs):
         """
         Initialize with pluggable disaggregator and CSV data source.
@@ -74,6 +97,16 @@ class SmallFrontierModel_v3(SmallFrontierModel):
             disaggregator_version: Which disaggregator to use ("v1", "v2", "v3")
             Towb_offset_in_K: Wet-bulb temperature offset in Kelvin (default 15)
             subsample_rate: Subsample the exogenous data (default 1 = no subsampling)
+            day_sampler: optional callable -> (T, 16) FMU-ready exogenous trace
+                (e.g. ML_algos.data_loader.RegimeADaySampler). When given, EVERY
+                reset() draws a FRESH day and a uniform-random start offset, so
+                training samples the workload DISTRIBUTION instead of cycling
+                one trace -- the train-on-synthetic requirement. csv_path then
+                only feeds the parent's discarded constructor-time generator.
+            sampler_seed: seed for the per-reset start-offset draws
+            min_horizon: offsets are drawn from [0, T - min_horizon) so an
+                episode of up to this many steps never wraps the day boundary
+                (default 200 = the sustain-lc max_ep_len)
             **kwargs: Additional arguments for parent class (start_time, stop_time, etc.)
         """
         csv_path = str(Path(csv_path).resolve())
@@ -110,9 +143,31 @@ class SmallFrontierModel_v3(SmallFrontierModel):
         self.disaggregator_version = disaggregator_version
         self.Towb_offset_in_K = Towb_offset_in_K
 
-    # No need to override other methods—they're inherited from parent
-    # The exogenous variable is fetched via get_exogenous_var() in step(),
-    # which we didn't override, so it uses the same interface
+        # per-reset synthetic-day resampling (see __init__ docstring)
+        self.day_sampler = day_sampler
+        self._min_horizon = int(min_horizon)
+        self._offset_rng = np.random.default_rng(sampler_seed)
+        if day_sampler is not None:
+            print(f"  Day sampler: {type(day_sampler).__name__} "
+                  f"(fresh day + random offset per reset)")
+
+    def reset(self):
+        """Parent reset (FMU re-init), plus: with a day_sampler, swap in a
+        freshly drawn day at a uniform-random start offset FIRST, so the
+        episode's exogenous stream comes from the new day. This also fixes the
+        upstream quirk that reset() never re-initialized the exogenous
+        iterator (episodes silently continued mid-trace)."""
+        if self.day_sampler is not None:
+            trace = np.asarray(self.day_sampler())
+            if trace.ndim != 2 or trace.shape[1] != 16:
+                raise ValueError(f"day_sampler must return (T, 16), got {trace.shape}")
+            hi = max(1, len(trace) - self._min_horizon)
+            offset = int(self._offset_rng.integers(0, hi))
+            self.iter_exogenous_var = _cyclic_rows(trace, offset)
+        return super().reset()
+
+    # Other methods are inherited from parent. The exogenous variable is
+    # fetched from iter_exogenous_var in step(), which we didn't override.
 
 
 class MH_SmallFrontierModel_v3(MH_SmallFrontierModel):
@@ -131,6 +186,9 @@ class MH_SmallFrontierModel_v3(MH_SmallFrontierModel):
                  csv_path,
                  disaggregator_version="v3",
                  Towb_offset_in_K=15.0,
+                 day_sampler=None,
+                 sampler_seed=0,
+                 min_horizon=200,
                  **kwargs):
         _orig = _mh_frontier_env_module.SmallFrontierModel
         _mh_frontier_env_module.SmallFrontierModel = functools.partial(
@@ -138,6 +196,9 @@ class MH_SmallFrontierModel_v3(MH_SmallFrontierModel):
             csv_path=csv_path,
             disaggregator_version=disaggregator_version,
             Towb_offset_in_K=Towb_offset_in_K,
+            day_sampler=day_sampler,
+            sampler_seed=sampler_seed,
+            min_horizon=min_horizon,
         )
         try:
             super().__init__(**kwargs)

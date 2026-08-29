@@ -154,6 +154,68 @@ def generate_regime_a_synthetic(
     return P_syn, towb_syn
 
 
+class RegimeADaySampler:
+    """Draw a fresh certified regime-A day per call -> (5761, 16) FMU trace.
+
+    The per-reset day source for train-on-synthetic: each call generates a new
+    day (new seed), optionally rejection-samples until it passes every
+    trace-tier spec check (same ABC-accept framing as deliver.py
+    --require-pass), and disaggregates at the canonical /9. The policy
+    therefore never sees the same trajectory twice.
+
+    Wet-bulb (`wetbulb`):
+      "replay"            -- the real 2024-04-07 facility column (default)
+      "noaa:YYYY-MM-DD"   -- one KTYS day via workload_gen_pipeline.weather
+      ["noaa:...", ...]   -- a pool; one entry drawn uniformly per day
+
+    Reproducibility: generation seeds advance sequentially from `seed`; every
+    accepted (seed, wetbulb) pair is appended to `self.day_log`.
+    """
+
+    def __init__(self, seed: int = 0, wetbulb="replay", require_pass: bool = True,
+                 max_tries: int = 40, config_path=None, spec_path=None):
+        from optimal_dc.workload_gen_pipeline import WorkloadConfig, load_spec
+
+        pipeline = Path(__file__).parents[1] / "workload_gen_pipeline"
+        self.config = WorkloadConfig.from_json(config_path or pipeline / "spec" / "regime_A_calib.json")
+        self.spec = load_spec(spec_path or pipeline / "spec" / "regime_A.json")
+        self.require_pass = require_pass
+        self.max_tries = max_tries
+        self._next_seed = seed
+        self._rng = np.random.default_rng(seed)
+        self.day_log: list = []
+
+        sources = [wetbulb] if isinstance(wetbulb, str) else list(wetbulb)
+        self._towb_pool = [(src, self._resolve_wetbulb(src)) for src in sources]
+
+    def _resolve_wetbulb(self, src: str) -> np.ndarray:
+        if src == "replay":
+            _P, towb, _dt = load_frontier_csv(
+                Path(__file__).parents[1] / "external/sustain-lc/input_04-07-24.csv")
+            return towb
+        if src.startswith("noaa:"):
+            from optimal_dc.workload_gen_pipeline.weather import wetbulb_for
+            return np.asarray(wetbulb_for(src.split(":", 1)[1]), dtype=np.float32)
+        raise ValueError(f"unknown wetbulb source {src!r}")
+
+    def __call__(self) -> np.ndarray:
+        from optimal_dc.workload_gen_pipeline import generate, validate
+
+        for _ in range(self.max_tries):
+            seed = self._next_seed
+            self._next_seed += 1
+            P = generate(self.config, seed=seed)
+            if self.require_pass and not validate(P, self.spec).passed_trace:
+                continue
+            src, towb = self._towb_pool[self._rng.integers(len(self._towb_pool))]
+            exog, _meta = disaggregate_to_fmu(P.astype(np.float32), towb)
+            self.day_log.append((seed, src))
+            return exog
+        raise RuntimeError(
+            f"no generated day passed trace-tier checks in {self.max_tries} tries "
+            "(acceptance is ~48%; this indicates a broken config, not bad luck)")
+
+
 def load_data_variant_a(
     csv_path: str | Path = None,
     n_synthetic_days: int = 2,
