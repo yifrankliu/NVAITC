@@ -52,6 +52,18 @@ def _cyclic_rows(trace: np.ndarray, offset: int = 0):
         i = (i + 1) % len(trace)
 
 
+# ---------------------------------------------------------------------------
+# facility_energy reward constants (the /9-regime baseline pass, 2026-08-28)
+# ---------------------------------------------------------------------------
+ENERGY_T_MAX_K = 330.396     # /9 baseline post-warmup peak + 0.5 K (prize-sizing memory)
+ENERGY_P_REF_W = 1.709e5     # /9 baseline MEAN cooling power (4101 kWh / 24 h) ->
+                             # baseline reward ~ -1.0 per step, PPO-friendly scale
+ENERGY_LAMBDA_PER_K = 10.0   # violation price: a sustained 0.1 K breach costs ~1.0/step,
+                             # >= the largest plausible per-step energy saving, so
+                             # constraint-cheating is strictly unprofitable
+_CABINET_KEYS = [f"cdu-cabinet-{k}" for k in range(1, 6)]
+
+
 class SmallFrontierModel_v3(SmallFrontierModel):
     """
     Subclass of SmallFrontierModel with pluggable data source and disaggregator.
@@ -113,6 +125,30 @@ class SmallFrontierModel_v3(SmallFrontierModel):
         if not Path(csv_path).exists():
             raise FileNotFoundError(f"CSV data source not found: {csv_path}")
 
+        # --- facility_energy reward (v3 extension; see step() override) ------
+        # The TRAINING reward the agent optimizes; the EVALUATION metric in
+        # validation/rollout.py integrates the same P_cooling offline. Both
+        # read the same POWER_VARS list -- single source of truth.
+        self._energy_reward = (kwargs.get("use_reward_shaping") == "facility_energy")
+        self.energy_T_max_K = float(kwargs.pop("energy_T_max_K", ENERGY_T_MAX_K))
+        self.energy_P_ref_W = float(kwargs.pop("energy_P_ref_W", ENERGY_P_REF_W))
+        self.energy_lambda_per_K = float(kwargs.pop("energy_lambda_per_K", ENERGY_LAMBDA_PER_K))
+        # The FMU's init transient spikes cabinet temps to ~133 C for ~10 steps
+        # after every reset (action-independent; measured 2026-08-29: violation
+        # 76 K at step 0, 0 K by step 10). The VIOLATION term is masked for
+        # this many post-reset steps so it cannot drown the learning signal;
+        # the energy term stays live (the power ramp is genuine physics). Same
+        # convention as rollout.py's WARMUP_STEPS feasibility window.
+        self.energy_warmup_steps = int(kwargs.pop("energy_warmup_steps", 30))
+        self._steps_since_reset = 0
+        if self._energy_reward:
+            # parent's step() dispatches on this string and rejects unknown
+            # values; hand it a valid placeholder -- its reward is discarded
+            # and recomputed by our step() override.
+            kwargs["use_reward_shaping"] = "reward_shaping_v0"
+            from optimal_dc.validation.rollout import POWER_VARS  # single source of truth
+            self._power_vars = POWER_VARS
+
         # The parent has no data-path parameter: its __init__ always builds a
         # v1/v2 generator from the module-level, cwd-relative EXOGENOUS_VAR_PATH
         # (and would crash from any other working directory). Point it at our
@@ -164,7 +200,37 @@ class SmallFrontierModel_v3(SmallFrontierModel):
             hi = max(1, len(trace) - self._min_horizon)
             offset = int(self._offset_rng.integers(0, hi))
             self.iter_exogenous_var = _cyclic_rows(trace, offset)
+        self._steps_since_reset = 0
         return super().reset()
+
+    def step(self, action):
+        """Parent step; with use_reward_shaping='facility_energy', the parent's
+        proxy reward is REPLACED by the true objective:
+
+            r_t = -(P_cooling / P_ref)  -  lambda * max(0, T_cab_max - T_max)
+
+        P_cooling = the 8 W_flow terms (5 CDU pumps + HTWP + CTWP + CT), the
+        SAME definition rollout.py integrates for scoring. Credit assignment:
+        one global scalar to all 6 components (shared-reward cooperative game
+        -- the objective is facility-level, per-component attribution would be
+        arbitrary). At the /9 baseline operating point r ~ -1.0 per step;
+        cooling harder than necessary costs reward directly (unlike the v0/v2
+        proxies, which PAY for overcooling), and a 0.1 K sustained violation
+        costs ~1.0/step, so the constraint cannot be profitably traded away."""
+        obs, reward, done, info = super().step(action)
+        self._steps_since_reset += 1
+        if not self._energy_reward:
+            return obs, reward, done, info
+
+        p_cool = float(np.sum([float(np.ravel(v)[0]) for v in self.fmu.get(self._power_vars)]))
+        t_cab_max = float(max(np.max(info[k][0:3]) for k in _CABINET_KEYS))
+        in_warmup = self._steps_since_reset <= self.energy_warmup_steps
+        violation = 0.0 if in_warmup else max(0.0, t_cab_max - self.energy_T_max_K)
+        r = -(p_cool / self.energy_P_ref_W) - self.energy_lambda_per_K * violation
+        energy_reward = {k: r for k in reward}          # same keys, global scalar
+        info["P_cooling_W"] = p_cool
+        info["T_cab_max_K"] = t_cab_max
+        return obs, energy_reward, done, info
 
     # Other methods are inherited from parent. The exogenous variable is
     # fetched from iter_exogenous_var in step(), which we didn't override.
@@ -178,8 +244,16 @@ class MH_SmallFrontierModel_v3(MH_SmallFrontierModel):
     The upstream MH_SmallFrontierModel builds its inner env by calling the
     module-level SmallFrontierModel symbol, so we temporarily rebind that
     symbol to a SmallFrontierModel_v3 partial while the parent constructor
-    runs — same pattern as the EXOGENOUS_VAR_PATH patch. Upstream defaults
-    (subsample_rate=40, do_valve_softmax=False) are preserved by the parent.
+    runs — same pattern as the EXOGENOUS_VAR_PATH patch.
+
+    CADENCE (v3 policy, 2026-08-29): upstream MH silently injects
+    subsample_rate=40 — each 15 s FMU step jumps the exogenous stream 10 min,
+    a 40x time compression that is physically inconsistent (thermal state at
+    15 s, boundary conditions at 600 s) and undocumented in the LC-Opt paper.
+    v3 forces subsample_rate=1 (true 15 s cadence) so MA and MH train on the
+    SAME process; across-episode workload diversity — the likely motive for
+    the upstream hack — comes from the day sampler's fresh-day+random-offset
+    resets instead. Pass subsample_rate=40 explicitly to reproduce upstream.
     """
 
     def __init__(self,
@@ -190,6 +264,8 @@ class MH_SmallFrontierModel_v3(MH_SmallFrontierModel):
                  sampler_seed=0,
                  min_horizon=200,
                  **kwargs):
+        kwargs.setdefault("subsample_rate", 1)   # override upstream's silent 40
+        self.subsample_rate = kwargs["subsample_rate"]
         _orig = _mh_frontier_env_module.SmallFrontierModel
         _mh_frontier_env_module.SmallFrontierModel = functools.partial(
             SmallFrontierModel_v3,

@@ -1,0 +1,37 @@
+# Variant A-synth-energy: train on synthetic days, ENERGY reward.
+#
+# The second comparison arm (2026-08-29 decision): same three architectures,
+# same synthetic-day training distribution as variant_a_synth.yaml, but the
+# agents optimize the TRUE objective during training instead of the sustain-lc
+# temperature/valve proxies:
+#
+#     r_t = -(P_cooling / P_ref) - lambda * max(0, T_cab_max - T_MAX_K)
+#
+# Arms are separate RUNS -- an agent never sees two reward functions. Native
+# arm = "baselines as published"; this arm = "best effort on our objective".
+# Everything is SCORED on the same rollout.py energy metric either way.
+#
+# Train with:  python -m optimal_dc.ML_algos.benchmarks train --algo ma_ca_ppo \
+#                --config optimal_dc/ML_algos/config/variant_a_synth_energy.yaml ...
+
+variant: "a_synth_energy"
+description: "Synthetic regime-A days, facility_energy reward (true objective); real day held out for eval"
+
+seed: 0
+use_reward_shaping: "facility_energy"
+
+csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
+disaggregator_version: "v3"
+
+synthetic_day_sampler:
+  seed: 0
+  wetbulb: "replay"
+  require_pass: true
+
+# facility_energy constants -- defaults are the /9-regime values measured
+# 2026-08-28 (see frontier_env_v3.py); listed here for visibility, override
+# only with a re-measured baseline.
+# energy_reward:
+#   energy_T_max_K: 330.396      # /9 baseline peak + 0.5 K
+#   energy_P_ref_W: 1.709e5      # /9 baseline mean cooling power
+#   energy_lambda_per_K: 10.0    # violation price per K per step

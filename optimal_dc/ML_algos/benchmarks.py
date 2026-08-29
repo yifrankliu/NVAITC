@@ -72,7 +72,10 @@ def build_env_and_agent(algo: str, config: dict, csv_path, disaggregator_version
     env = env_cls(csv_path=csv_path, disaggregator_version=disaggregator_version,
                   day_sampler=day_sampler,
                   min_horizon=int(config.get("max_ep_len", 200)),
-                  use_reward_shaping=config.get("use_reward_shaping", "reward_shaping_v2"))
+                  use_reward_shaping=config.get("use_reward_shaping", "reward_shaping_v2"),
+                  # optional overrides for the facility_energy reward constants
+                  # (energy_T_max_K / energy_P_ref_W / energy_lambda_per_K)
+                  **config.get("energy_reward", {}))
     agent = agent_cls(config, env)
     return env, agent
 
@@ -243,8 +246,11 @@ def main():
     train_parser.add_argument(
         "--config",
         type=Path,
-        default=Path(__file__).parent / "config/variant_a_frontier.yaml",
-        help="Hyperparameter config"
+        # default = the train-on-synthetic protocol config (fresh certified day
+        # per episode; real day held out). Pass variant_a_frontier.yaml
+        # explicitly for the trained-on-real ablation arm.
+        default=Path(__file__).parent / "config/variant_a_synth.yaml",
+        help="Hyperparameter config (default: synthetic-day training)"
     )
     train_parser.add_argument(
         "--output",
