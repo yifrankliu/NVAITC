@@ -9,8 +9,10 @@ seed: 0
 device: "cuda"  # informational; the sustain-lc nets pick cuda themselves if available
 
 # --- sustain-lc PPO hyperparameters (defaults shown = upstream values) ---
-# max_ep_len: 200            # timesteps per episode
-# update_timestep: 200       # MA: 1 x ep_len; MH default: 2 x ep_len
+# max_ep_len: 200            # timesteps per episode (protocol configs use 5760 = full day)
+# update_ep_len: 200         # PPO update window base; update = FACTOR x this
+#                            # (MA/unified 1x, MH 2x) — decoupled from max_ep_len
+# update_timestep: 200       # explicit override of the computed cadence
 # K_epochs: 50               # epochs per PPO update
 # eps_clip: 0.2
 # gamma: 0.80

@@ -10,6 +10,13 @@ description: "Frontier CSV (real, 1 day 2024-04-07), v3 /9 disaggregation"
 seed: 0
 use_reward_shaping: "reward_shaping_v2"
 
+# Full-day episodes, same protocol as variant_a_synth.yaml (kept identical so
+# the trained-on-real ablation arm differs ONLY in data source). No day
+# sampler here: episodes march through the static CSV cyclically, so each
+# episode still spans one ~24 h pass of the real day.
+max_ep_len: 5760
+update_ep_len: 192
+
 # Data pipeline (read by benchmarks.py; relative paths resolve against NVAITC/)
 csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
 disaggregator_version: "v3"

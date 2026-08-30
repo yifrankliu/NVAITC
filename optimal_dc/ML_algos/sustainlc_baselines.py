@@ -84,14 +84,32 @@ class _SustainLCBaseline(BaseAlgorithm):
 
     AGENT_TYPE: str = None
     ALGO_NAME: str = None
-    UPDATE_TIMESTEP_FACTOR: int = None  # update every factor * max_ep_len steps
+    UPDATE_TIMESTEP_FACTOR: int = None  # update every factor * update_ep_len steps
 
     def __init__(self, config: dict, env):
         super().__init__(config, env)
         self.hp = {k: config.get(k, v) for k, v in SUSTAINLC_DEFAULTS.items()}
         self.max_ep_len = int(self.hp["max_ep_len"])
+        # PPO update cadence is DECOUPLED from episode length (2026-08-30,
+        # full-day-episode decision): the update window is FACTOR x
+        # `update_ep_len` (default 200 = upstream's ep_len, so short-episode
+        # configs behave exactly as before). With max_ep_len 5760 one update
+        # per episode would collapse 2500 updates into 86; keeping ~200-step
+        # windows inside the long episode preserves the optimization regime —
+        # bootstrapping via next_state makes mid-episode updates sound.
+        update_ep_len = int(config.get("update_ep_len", 200))
         self.update_timestep = int(config.get(
-            "update_timestep", self.UPDATE_TIMESTEP_FACTOR * self.max_ep_len))
+            "update_timestep", self.UPDATE_TIMESTEP_FACTOR * update_ep_len))
+        # resume snapshots fire at episode ends that land on update boundaries;
+        # warn if the chosen geometry makes that rare (crash rewinds far)
+        _ep, _up = self.max_ep_len, self.update_timestep
+        import math
+        _coincide_every = _up // math.gcd(_ep, _up)
+        if _coincide_every > 5:
+            logger.warning(
+                f"max_ep_len={_ep} and update_timestep={_up} only align every "
+                f"{_coincide_every} episodes — resume snapshots will be that "
+                f"infrequent; pick values where one divides the other")
 
         self.agent_mdp_dict = self._build_agent_mdp_dict(env)
         self.agent = multiagent_ppo_dtde(self.agent_mdp_dict, agent_type=self.AGENT_TYPE)
@@ -146,15 +164,38 @@ class _SustainLCBaseline(BaseAlgorithm):
     # ---------------------------------------------------------------- training
     def learn(self, env, n_steps: int, eval_env=None, eval_interval: int = None) -> dict:
         """Faithful port of the upstream training loop (episode structure,
-        update cadence, action-std decay, best-reward checkpointing)."""
-        hp = self.hp
-        best_reward = {"CDUCAB": float("-inf"), "CT": float("-inf")}
-        running_reward = {"CDUCAB": 0.0, "CT": 0.0}
-        running_episodes = 0
-        save_freq = int(self.config.get("save_model_freq", 2000))
-        time_step = 0
-        i_episode = 0
+        update cadence, action-std decay, best-reward checkpointing).
 
+        Resumable AND reproducible: counters start from load_resume_state()'s
+        snapshot if one was loaded; a full snapshot is written at every
+        episode end that coincides with a PPO-update boundary (every episode
+        for MA, every 2nd for MH). Only there is the ENTIRE state consistent —
+        buffers empty, nets untouched since the update, episode stats folded
+        in, RNG + day-sampler exactly as the run carries them into the next
+        reset() — so a resumed run replays the uninterrupted run bit-for-bit
+        (modulo FMU solver nondeterminism). Any interrupt or crash loses at
+        most the steps since that boundary (< one update window + one episode);
+        deliberately NO mid-window/exit-time save exists, because a snapshot
+        taken off-boundary would resume soundly but not reproducibly."""
+        hp = self.hp
+        rs = getattr(self, "_resume_counters", None) or {}
+        best_reward = rs.get("best_reward", {"CDUCAB": float("-inf"), "CT": float("-inf")})
+        running_reward = rs.get("running_reward", {"CDUCAB": 0.0, "CT": 0.0})
+        running_episodes = rs.get("running_episodes", 0)
+        save_freq = int(self.config.get("save_model_freq", 2000))
+        time_step = rs.get("time_step", 0)
+        i_episode = rs.get("i_episode", 0)
+
+        def _counters():
+            return {"time_step": time_step,
+                    "i_episode": i_episode,
+                    "best_reward": best_reward,
+                    "running_reward": running_reward,
+                    "running_episodes": running_episodes}
+
+        if rs:
+            self.logger.info(f"[{self.ALGO_NAME}] RESUMING at step {time_step} "
+                             f"(episode {i_episode}) toward {n_steps}")
         self.logger.info(
             f"[{self.ALGO_NAME}] training for {n_steps} steps "
             f"(ep_len={self.max_ep_len}, update every {self.update_timestep}, "
@@ -213,8 +254,39 @@ class _SustainLCBaseline(BaseAlgorithm):
                 "ep_reward_CDUCAB": ep_reward["CDUCAB"],
                 "ep_reward_CT": ep_reward["CT"]})
 
+            # Boundary snapshot: episode ended exactly on an update boundary
+            # (default cadence guarantees this every UPDATE_TIMESTEP_FACTOR
+            # episodes), so buffers are empty, this episode's stats are folded
+            # in, and RNG/sampler are exactly what the next reset() consumes.
+            if time_step % self.update_timestep == 0 and hasattr(self, "checkpoint_dir"):
+                self.save_resume_state(env, counters=_counters())
+
         self.logger.info(f"[{self.ALGO_NAME}] done: {time_step} steps, {i_episode} episodes")
         return {"log": self.train_log}
+
+    # ---------------------------------------------------------------- resume state
+    def _agent_state(self) -> dict:
+        out = {}
+        for aid, a in self.agent.agents.items():
+            d = {"policy": a.policy.state_dict(),
+                 "policy_old": a.policy_old.state_dict(),
+                 "optimizer": a.optimizer.state_dict()}
+            if hasattr(a, "action_std"):      # discrete CT CA_PPO has none
+                d["action_std"] = a.action_std
+            out[aid] = d
+        return out
+
+    def _load_agent_state(self, state: dict) -> None:
+        for aid, d in state.items():
+            a = self.agent.agents[aid]
+            a.policy.load_state_dict(d["policy"])
+            a.policy_old.load_state_dict(d["policy_old"])
+            a.optimizer.load_state_dict(d["optimizer"])
+            if "action_std" in d:
+                # set_action_std also rebuilds action_var on BOTH nets — the
+                # tensor state_dict() omits (the eval-only-checkpoint gap)
+                a.set_action_std(d["action_std"])
+                self._action_std = d["action_std"]
 
     # ---------------------------------------------------------------- evaluation
     def evaluate(self, eval_env, n_episodes: int = 5, deterministic: bool = True,

@@ -34,7 +34,8 @@ python -m optimal_dc.ML_algos.benchmarks train \
   --algo ma_ca_ppo --n_steps 3_000_000 --seed 0 \
   --output optimal_dc/ML_algos/checkpoints/variant_a_ma
 
-# MH baseline (upstream budget 5M steps; env subsamples data 40x)
+# MH baseline (upstream budget 5M steps; v3 forces subsample_rate=1 — the
+# upstream 40x compression is deliberately NOT reproduced)
 python -m optimal_dc.ML_algos.benchmarks train \
   --algo mh_ma_ca_ppo --n_steps 5_000_000 --seed 0 \
   --output optimal_dc/ML_algos/checkpoints/variant_a_mh
@@ -43,14 +44,19 @@ python -m optimal_dc.ML_algos.benchmarks train \
 ## 4. Evaluation
 
 ```bash
-python -m optimal_dc.ML_algos.benchmarks eval \
+python -m optimal_dc.ML_algos.benchmarks sanity_eval \
   --checkpoint optimal_dc/ML_algos/checkpoints/variant_a_ma/ma_ca_ppo_final_agent_CDUCAB.pth \
-  --n_episodes 5
+  --n_episodes 5 --max_steps 200
 ```
 
-Reports per-agent returns, cabinet temps (warm-up-discarded), and CT fan power;
-writes `eval_results.json` next to the checkpoint. The algo + data source come
-from `metadata.json`, so eval always matches training conditions.
+This is a SANITY CHECK in the checkpoint's own training-reward units — not the
+judged metric (that is validation/rollout.py: energy + violations on a fixed
+trace). Reports per-agent returns, cabinet temps (warm-up-discarded), and CT
+fan power; writes `sanity_eval_results.json` next to the checkpoint. The algo
++ data source come from `metadata.json`, so eval matches training conditions.
+Without `--max_steps`, episodes run the config's `max_ep_len` — a full day
+(5760 steps, ~25 min each) under the 2026-08-30 protocol. (`eval` still works
+as a hidden alias.)
 
 Reference points from the smoke run (rule-based-ish behavior, ÷9 regime, real
 day): settled cabinet temps ~45–57 °C. Thermal limits for ÷9 are TBD — set

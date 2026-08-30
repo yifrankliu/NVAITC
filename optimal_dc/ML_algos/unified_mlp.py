@@ -73,8 +73,11 @@ class Unified_MLP(BaseAlgorithm):
         super().__init__(config, env)
         self.hp = {k: config.get(k, v) for k, v in UNIFIED_DEFAULTS.items()}
         self.max_ep_len = int(self.hp["max_ep_len"])
-        # upstream: update every 1 x ep_len steps
-        self.update_timestep = int(config.get("update_timestep", self.max_ep_len))
+        # upstream: update every 1 x 200 steps. Cadence is decoupled from
+        # episode length via `update_ep_len` (see sustainlc_baselines) so
+        # full-day episodes keep ~200-step PPO windows.
+        self.update_timestep = int(config.get(
+            "update_timestep", int(config.get("update_ep_len", 200))))
         self.agent = Unified_PPO(
             state_dim=34, cdu_action_dim=25, ct_action_dim=9,
             num_centralized_actions=1,
@@ -110,14 +113,31 @@ class Unified_MLP(BaseAlgorithm):
 
     # -------------------------------------------------------------- training
     def learn(self, env, n_steps: int, eval_env=None, eval_interval: int = None) -> dict:
+        """Resumable AND reproducible — same snapshot scheme as the sustainlc
+        baselines: counters continue from load_resume_state(); a full snapshot
+        is written at every episode end that coincides with an update boundary
+        (every episode at the default 1 x ep_len cadence). See
+        _SustainLCBaseline.learn() for why boundary-only snapshots make a
+        resumed run bit-identical to an uninterrupted one."""
         hp = self.hp
-        best_reward = float("-inf")
-        running_reward = {"CDUCAB": 0.0, "CT": 0.0}
-        running_episodes = 0
+        rs = getattr(self, "_resume_counters", None) or {}
+        best_reward = rs.get("best_reward", float("-inf"))
+        running_reward = rs.get("running_reward", {"CDUCAB": 0.0, "CT": 0.0})
+        running_episodes = rs.get("running_episodes", 0)
         save_freq = int(hp["save_model_freq"])
-        time_step = 0
-        i_episode = 0
+        time_step = rs.get("time_step", 0)
+        i_episode = rs.get("i_episode", 0)
 
+        def _counters():
+            return {"time_step": time_step,
+                    "i_episode": i_episode,
+                    "best_reward": best_reward,
+                    "running_reward": running_reward,
+                    "running_episodes": running_episodes}
+
+        if rs:
+            self.logger.info(f"[{self.ALGO_NAME}] RESUMING at step {time_step} "
+                             f"(episode {i_episode}) toward {n_steps}")
         self.logger.info(
             f"[{self.ALGO_NAME}] training for {n_steps} steps "
             f"(ep_len={self.max_ep_len}, update every {self.update_timestep}, "
@@ -175,8 +195,30 @@ class Unified_MLP(BaseAlgorithm):
                 "ep_reward_CDUCAB": ep_reward["CDUCAB"],
                 "ep_reward_CT": ep_reward["CT"]})
 
+            # Boundary snapshot — see _SustainLCBaseline.learn() for the
+            # reproducibility argument.
+            if time_step % self.update_timestep == 0 and hasattr(self, "checkpoint_dir"):
+                self.save_resume_state(env, counters=_counters())
+
         self.logger.info(f"[{self.ALGO_NAME}] done: {time_step} steps, {i_episode} episodes")
         return {"log": self.train_log}
+
+    # ---------------------------------------------------------- resume state
+    def _agent_state(self) -> dict:
+        a = self.agent
+        return {"policy": a.policy.state_dict(),
+                "policy_old": a.policy_old.state_dict(),
+                "optimizer": a.optimizer.state_dict(),
+                "cdu_action_std": a.cdu_action_std}
+
+    def _load_agent_state(self, state: dict) -> None:
+        a = self.agent
+        # restores BOTH nets — Unified_PPO.load() only restores policy_old,
+        # which is why plain .pth checkpoints cannot resume training
+        a.policy.load_state_dict(state["policy"])
+        a.policy_old.load_state_dict(state["policy_old"])
+        a.optimizer.load_state_dict(state["optimizer"])
+        a.set_action_std(state["cdu_action_std"])
 
     # ------------------------------------------------------------ evaluation
     def evaluate(self, eval_env, n_episodes: int = 5, deterministic: bool = True,

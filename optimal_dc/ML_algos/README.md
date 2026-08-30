@@ -52,7 +52,7 @@ python -m optimal_dc.ML_algos.benchmarks train \
   --output optimal_dc/ML_algos/checkpoints/variant_a_ma \
   --n_steps 3_000_000 --seed 0
 
-python -m optimal_dc.ML_algos.benchmarks eval \
+python -m optimal_dc.ML_algos.benchmarks sanity_eval \
   --checkpoint optimal_dc/ML_algos/checkpoints/variant_a_ma/ma_ca_ppo_final_agent_CDUCAB.pth \
   --n_episodes 5
 ```

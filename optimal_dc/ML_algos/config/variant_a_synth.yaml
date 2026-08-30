@@ -15,6 +15,22 @@ description: "Synthetic regime-A days (fresh certified day per episode), v3 /9; 
 seed: 0
 use_reward_shaping: "reward_shaping_v2"
 
+# --- FULL-DAY EPISODES (2026-08-30 decision) ---------------------------------
+# One certified day = one episode: 5760 steps x 15 s = 24 h, started at
+# midnight (benchmarks passes min_horizon = max_ep_len, which forces the day
+# sampler's start offset to 0), FMU reset once per day. Rationale: the plant
+# reaches developed thermal states (the 50-min protocol trained ONLY on
+# cold-start windows); cold-start bias drops from 100% to ~4% of data; training
+# now matches rollout.py's full-day evaluation protocol.
+# update_ep_len decouples the PPO cadence from episode length: updates every
+# FACTOR x 192 steps (MA/unified 192, MH 384). 192 was chosen as the closest
+# value to upstream's 200 that divides 5760 — so every episode end is an
+# update boundary (buffers empty) and the resume snapshot fires exactly once
+# per simulated day. NOTE: a 500k-step run now covers 86 full days instead of
+# ~2500 partial ones — fuller days, fewer of them.
+max_ep_len: 5760
+update_ep_len: 192
+
 # csv_path only feeds the env constructor's discarded generator; the sampler
 # below replaces the exogenous stream at every reset.
 csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"

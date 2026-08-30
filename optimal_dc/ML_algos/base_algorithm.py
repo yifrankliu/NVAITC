@@ -12,6 +12,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Full training-state snapshot for resumable runs; lives next to the checkpoints.
+# torch/numpy are imported lazily inside the resume methods so this module stays
+# importable in torch-less environments (see ML_algos/__init__.py).
+RESUME_FILENAME = "resume_state.pt"
+
 
 class BaseAlgorithm:
     """
@@ -58,6 +63,134 @@ class BaseAlgorithm:
         with open(config_path, "w") as f:
             json.dump(self.config, f, indent=2)
         self.logger.info(f"Checkpoint directory: {self.checkpoint_dir}")
+
+    # ------------------------------------------------------------------ resume
+    # The eval-only .pth checkpoints persist just policy_old weights (upstream
+    # format). These methods snapshot EVERYTHING a paused/killed run needs to
+    # continue: nets + optimizer + action_std, loop counters, RNG states, and
+    # the day-sampler position (so a resumed run continues the day sequence
+    # instead of replaying days it already trained on).
+
+    def _agent_state(self) -> dict:
+        """Subclass hook: full learnable state (nets, optimizers, action stds)."""
+        raise NotImplementedError
+
+    def _load_agent_state(self, state: dict) -> None:
+        """Subclass hook: inverse of _agent_state()."""
+        raise NotImplementedError
+
+    def save_resume_state(self, env=None, counters: dict = None) -> Path:
+        """Atomically write the resume snapshot to checkpoint_dir. Call only at
+        episode-end PPO-update boundaries (rollout buffers empty, episode stats
+        folded in, RNG/sampler exactly as the run carries them into the next
+        reset) — learn() does this. Snapshotting ONLY at such boundaries is
+        what makes resume bit-identical to an uninterrupted run."""
+        import os
+        import torch
+        state = {
+            "algo": getattr(self, "ALGO_NAME", type(self).__name__),
+            "config_fingerprint": self._config_fingerprint(self.config),
+            "counters": dict(counters or {}),
+            "agents": self._agent_state(),
+            "rng": self._rng_state(),
+            "env": self._env_state(env) if env is not None else {},
+            "train_log": self.train_log,
+        }
+        path = self.checkpoint_dir / RESUME_FILENAME
+        tmp = path.with_suffix(".tmp")
+        torch.save(state, tmp)
+        os.replace(tmp, path)      # atomic: a crash mid-write never corrupts the snapshot
+        return path
+
+    def load_resume_state(self, path: str | Path = None, env=None) -> dict:
+        """Restore a snapshot written by save_resume_state; returns the counters
+        dict for learn() to continue from. Trusted local artifact, hence
+        weights_only=False (the snapshot holds RNG tuples, not just tensors)."""
+        import torch
+        path = Path(path) if path is not None else self.checkpoint_dir / RESUME_FILENAME
+        state = torch.load(path, map_location="cpu", weights_only=False)
+        if state.get("algo") not in (None, getattr(self, "ALGO_NAME", type(self).__name__)):
+            raise ValueError(f"resume state is for {state['algo']!r}, not this algorithm")
+        fp = state.get("config_fingerprint")
+        if fp is not None and fp != self._config_fingerprint(self.config):
+            raise ValueError(
+                f"resume state {path} was written under a different config/seed "
+                "than this invocation. Restore the original config (and seed), "
+                "or pass --fresh to discard the snapshot and start over.")
+        self._load_agent_state(state["agents"])
+        self._restore_rng(state.get("rng", {}))
+        if env is not None:
+            self._restore_env_state(env, state.get("env", {}))
+        self.train_log = state.get("train_log", [])
+        self._resume_counters = state.get("counters", {})
+        self.total_timesteps = self._resume_counters.get("time_step", 0)
+        self.total_episodes = self._resume_counters.get("i_episode", 0)
+        return self._resume_counters
+
+    @staticmethod
+    def _config_fingerprint(config: dict) -> str:
+        """Hash of everything in the config that must match for a resume to be
+        valid (the seed is in here — benchmarks writes it into the config).
+        'device' is excluded so a run may move between CPU and GPU hosts; note
+        that switching device mid-run keeps resume SOUND but not bit-identical
+        (CPU and CUDA consume different RNG streams when sampling actions)."""
+        import hashlib
+        clean = {k: v for k, v in config.items() if k != "device"}
+        return hashlib.sha256(
+            json.dumps(clean, sort_keys=True, default=str).encode()).hexdigest()
+
+    @staticmethod
+    def _rng_state() -> dict:
+        import random
+        import numpy as np
+        import torch
+        return {
+            "python": random.getstate(),
+            "numpy": np.random.get_state(),
+            "torch": torch.get_rng_state(),
+            "torch_cuda": (torch.cuda.get_rng_state_all()
+                           if torch.cuda.is_available() else None),
+        }
+
+    @staticmethod
+    def _restore_rng(rng: dict) -> None:
+        import random
+        import numpy as np
+        import torch
+        if "python" in rng:
+            random.setstate(rng["python"])
+        if "numpy" in rng:
+            np.random.set_state(rng["numpy"])
+        if "torch" in rng:
+            torch.set_rng_state(rng["torch"].cpu())
+        cuda = rng.get("torch_cuda")
+        if cuda is not None and torch.cuda.is_available() \
+                and len(cuda) == torch.cuda.device_count():
+            torch.cuda.set_rng_state_all([s.cpu() for s in cuda])
+
+    @staticmethod
+    def _env_state(env) -> dict:
+        inner = getattr(env, "env", env)          # MH wraps the real env
+        out = {}
+        sampler = getattr(inner, "day_sampler", None)
+        if sampler is not None:
+            out["sampler_next_seed"] = sampler._next_seed
+            out["sampler_day_log"] = list(sampler.day_log)
+            out["sampler_rng"] = sampler._rng.bit_generator.state
+        if getattr(inner, "_offset_rng", None) is not None:
+            out["offset_rng"] = inner._offset_rng.bit_generator.state
+        return out
+
+    @staticmethod
+    def _restore_env_state(env, state: dict) -> None:
+        inner = getattr(env, "env", env)
+        sampler = getattr(inner, "day_sampler", None)
+        if sampler is not None and "sampler_next_seed" in state:
+            sampler._next_seed = state["sampler_next_seed"]
+            sampler.day_log = list(state["sampler_day_log"])
+            sampler._rng.bit_generator.state = state["sampler_rng"]
+        if getattr(inner, "_offset_rng", None) is not None and "offset_rng" in state:
+            inner._offset_rng.bit_generator.state = state["offset_rng"]
 
     def log_training_step(self, step: int, metrics: dict) -> None:
         """Log training metrics."""

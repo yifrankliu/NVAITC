@@ -20,6 +20,13 @@ description: "Synthetic regime-A days, facility_energy reward (true objective); 
 seed: 0
 use_reward_shaping: "facility_energy"
 
+# Full-day episodes + decoupled PPO cadence — same protocol as
+# variant_a_synth.yaml (see the block there for the full rationale).
+# The facility_energy warmup mask (first 30 post-reset steps) now applies
+# once per day instead of once per 50 min.
+max_ep_len: 5760
+update_ep_len: 192
+
 csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
 disaggregator_version: "v3"
 
