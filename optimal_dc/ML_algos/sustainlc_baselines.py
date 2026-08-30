@@ -101,15 +101,18 @@ class _SustainLCBaseline(BaseAlgorithm):
         self.update_timestep = int(config.get(
             "update_timestep", self.UPDATE_TIMESTEP_FACTOR * update_ep_len))
         # resume snapshots fire at episode ends that land on update boundaries;
-        # warn if the chosen geometry makes that rare (crash rewinds far)
+        # warn if the chosen geometry makes that rare (a crash rewinds that many
+        # episodes). 1 = every episode (protocol: 192 divides 5760); 2 = the
+        # legacy MH default (ep 200, update 400) — both fine.
         _ep, _up = self.max_ep_len, self.update_timestep
         import math
         _coincide_every = _up // math.gcd(_ep, _up)
-        if _coincide_every > 5:
-            logger.warning(
+        if _coincide_every > 2:
+            self.logger.warning(
                 f"max_ep_len={_ep} and update_timestep={_up} only align every "
                 f"{_coincide_every} episodes — resume snapshots will be that "
-                f"infrequent; pick values where one divides the other")
+                f"infrequent; pick values where one divides the other "
+                f"(e.g. update_ep_len 192 with max_ep_len 5760)")
 
         self.agent_mdp_dict = self._build_agent_mdp_dict(env)
         self.agent = multiagent_ppo_dtde(self.agent_mdp_dict, agent_type=self.AGENT_TYPE)

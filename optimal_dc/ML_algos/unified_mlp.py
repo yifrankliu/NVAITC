@@ -3,7 +3,7 @@
 Baseline 3 of 3: one network sees the full concatenated 34-dim state and emits
 both the CDU continuous actions (25 = 5 cabinets x [Tsec, dp, v1, v2, v3]) and
 the CT discrete action (9). The agent itself is the June-2026 Unified_PPO in
-optimal_dc/unified_mlp_baseline.py (the one sent to Cliff) -- this module only
+ML_algos/unified_mlp_baseline.py (the one sent to Cliff) -- this module only
 adapts it to the BaseAlgorithm learn/evaluate/checkpoint contract so
 `benchmarks train --algo unified_mlp` works, incl. the synthetic day sampler.
 
@@ -19,14 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
-# unified_mlp_baseline.py sits in optimal_dc/ and itself imports from the
-# sustain-lc submodule (RolloutBuffer from ca_ppo), so both need to be on path.
+# unified_mlp_baseline.py (moved into ML_algos/, 2026-08-30) imports from the
+# sustain-lc submodule (RolloutBuffer from ca_ppo), so that dir must be on
+# path BEFORE the import; the repo root enables the optimal_dc.* namespace.
 _OPTIMAL_DC = Path(__file__).resolve().parents[1]
-for _p in (str(_OPTIMAL_DC.parent), str(_OPTIMAL_DC), str(_OPTIMAL_DC / "external" / "sustain-lc")):
+for _p in (str(_OPTIMAL_DC.parent), str(_OPTIMAL_DC / "external" / "sustain-lc")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from unified_mlp_baseline import Unified_PPO  # noqa: E402
+from optimal_dc.ML_algos.unified_mlp_baseline import Unified_PPO  # noqa: E402
 
 from optimal_dc.ML_algos.base_algorithm import BaseAlgorithm  # noqa: E402
 
@@ -225,7 +226,7 @@ class Unified_MLP(BaseAlgorithm):
                  max_steps: int = None) -> dict:
         """Reward-summary evaluation, mirroring the sustainlc baselines.
         NOTE: every reset() re-triggers the FMU init transient; energy-metric
-        scoring belongs to validation/rollout.py, not here."""
+        scoring belongs to evaluation/rollout.py, not here."""
         max_steps = max_steps or self.max_ep_len
         totals = {"CDUCAB": [], "CT": []}
         for _ in range(n_episodes):
@@ -260,7 +261,7 @@ class Unified_MLP(BaseAlgorithm):
         """Load a checkpoint from the June-2026 Unified_MLP_preTrained lineage
         (e.g. Cliff's cluster run). NOTE: those weights were trained on the /15
         v2-processed trace -- comparable only within that regime."""
-        path = (_OPTIMAL_DC / "Unified_MLP_preTrained" / "SmallFrontierModel"
+        path = (_OPTIMAL_DC / "archive" / "Unified_MLP_preTrained" / "SmallFrontierModel"
                 / f"PPO_SmallFrontierModel_{seed}_{run_num_pretrained}_unified.pth")
         self.agent.load(str(path))
         self.logger.info(f"Loaded pretrained (/15-regime) unified MLP: {path}")

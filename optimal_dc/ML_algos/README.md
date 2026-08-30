@@ -18,9 +18,9 @@ update every 1×/2× ep_len, K=50, γ=0.80, clip 0.2, lr 3e-4/1e-3, action-std
 0.6→0.1 at 0.05/250k, `reward_shaping_v2`); any config key of the same name
 overrides them.
 
-A third, unified single-network baseline exists as Frank's
-`optimal_dc/unified_mlp_baseline.py` (Unified_PPO, 34-dim flat state) — not yet
-wrapped into this registry.
+The third, unified single-network baseline is Frank's
+`optimal_dc/ML_algos/unified_mlp_baseline.py` (Unified_PPO, 34-dim flat state),
+wrapped into the registry as `unified_mlp` by `unified_mlp.py`.
 
 ## Files
 

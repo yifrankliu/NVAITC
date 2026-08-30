@@ -127,7 +127,7 @@ class SmallFrontierModel_v3(SmallFrontierModel):
 
         # --- facility_energy reward (v3 extension; see step() override) ------
         # The TRAINING reward the agent optimizes; the EVALUATION metric in
-        # validation/rollout.py integrates the same P_cooling offline. Both
+        # evaluation/rollout.py integrates the same P_cooling offline. Both
         # read the same POWER_VARS list -- single source of truth.
         self._energy_reward = (kwargs.get("use_reward_shaping") == "facility_energy")
         self.energy_T_max_K = float(kwargs.pop("energy_T_max_K", ENERGY_T_MAX_K))
@@ -146,7 +146,7 @@ class SmallFrontierModel_v3(SmallFrontierModel):
             # values; hand it a valid placeholder -- its reward is discarded
             # and recomputed by our step() override.
             kwargs["use_reward_shaping"] = "reward_shaping_v0"
-            from optimal_dc.validation.rollout import POWER_VARS  # single source of truth
+            from optimal_dc.evaluation.rollout import POWER_VARS  # single source of truth
             self._power_vars = POWER_VARS
 
         # The parent has no data-path parameter: its __init__ always builds a

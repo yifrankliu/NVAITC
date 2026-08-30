@@ -4,8 +4,9 @@ from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
 
 # --- making the sustain-lc submodule importable (repo-relative, move-safe) ---
+# this file lives in optimal_dc/ML_algos/ -> parents[1] is optimal_dc/
 import sys, pathlib
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "external" / "sustain-lc"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "external" / "sustain-lc"))
 # ---------------------------------------------------------------------------
 from ca_ppo import RolloutBuffer
 

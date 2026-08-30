@@ -50,7 +50,7 @@ python -m optimal_dc.ML_algos.benchmarks sanity_eval \
 ```
 
 This is a SANITY CHECK in the checkpoint's own training-reward units — not the
-judged metric (that is validation/rollout.py: energy + violations on a fixed
+judged metric (that is evaluation/rollout.py: energy + violations on a fixed
 trace). Reports per-agent returns, cabinet temps (warm-up-discarded), and CT
 fan power; writes `sanity_eval_results.json` next to the checkpoint. The algo
 + data source come from `metadata.json`, so eval matches training conditions.

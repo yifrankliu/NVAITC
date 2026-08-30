@@ -18,7 +18,7 @@ Usage:
 
 sanity_eval reports returns in the checkpoint's OWN training-reward units — a
 "did training work" check, not comparable across reward arms. The judged
-metric (kWh + violations on a fixed trace) lives in validation/rollout.py.
+metric (kWh + violations on a fixed trace) lives in evaluation/rollout.py.
 """
 
 import argparse
@@ -213,7 +213,7 @@ def sanity_eval_variant_a(checkpoint_path: str | Path, n_episodes: int = 5,
     Sanity-check a trained checkpoint: roll it out and report returns in its
     OWN training-reward units plus quick physical summaries. This answers
     "did training achieve what it optimized" — it is NOT the judged
-    evaluation (that is validation/rollout.py: energy + violations on a fixed
+    evaluation (that is evaluation/rollout.py: energy + violations on a fixed
     trace, comparable across all algos and reward arms), and its numbers must
     never be compared across reward arms.
 
@@ -224,7 +224,7 @@ def sanity_eval_variant_a(checkpoint_path: str | Path, n_episodes: int = 5,
             full day under the 2026-08-30 protocol; pass ~200 for a quick check)
     """
     logger.info("="*80)
-    logger.info("SANITY EVAL (training-reward units; judged metric = validation/rollout.py)")
+    logger.info("SANITY EVAL (training-reward units; judged metric = evaluation/rollout.py)")
     logger.info("="*80)
 
     checkpoint_path = Path(checkpoint_path)
@@ -335,7 +335,7 @@ def main():
     eval_parser = subparsers.add_parser(
         "sanity_eval", aliases=["eval"],
         help="Sanity-check a checkpoint in its own training-reward units "
-             "(the judged energy metric lives in validation/rollout.py)")
+             "(the judged energy metric lives in evaluation/rollout.py)")
     eval_parser.add_argument(
         "--checkpoint",
         type=Path,
