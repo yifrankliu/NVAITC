@@ -43,10 +43,10 @@ from optimal_dc.inherited_FMU_with_modifications.frontier_env_v3 import (
     SmallFrontierModel_v3, MH_SmallFrontierModel_v3,
 )
 
-# algo name -> (env class, algorithm class). "ppo" (the in-repo unified stub) is
-# deliberately NOT listed: its update rule is a placeholder (policy_loss =
-# value_loss) and its env API is wrong — see the module docstring of ppo.py.
-# "unified_mlp" wraps the REAL June-2026 Unified_PPO (unified_mlp_baseline.py).
+# algo name -> (env class, algorithm class). The three registered algos are the
+# two sustain-lc baselines plus the unified single-agent MLP; "unified_mlp"
+# wraps the REAL June-2026 Unified_PPO (unified_mlp_baseline.py). (A stub ppo.py
+# with a placeholder update rule was deleted 2026-08-28.)
 ALGOS = {
     "ma_ca_ppo": (SmallFrontierModel_v3, MA_CA_PPO),
     "mh_ma_ca_ppo": (MH_SmallFrontierModel_v3, MH_MA_CA_PPO),

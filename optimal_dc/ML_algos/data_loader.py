@@ -8,7 +8,7 @@ import csv
 import sys
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple
 import logging
 
 # Repo root (NVAITC/) so `optimal_dc.*` namespace imports resolve when this
@@ -100,60 +100,6 @@ def disaggregate_to_fmu(
     return exog, meta
 
 
-def generate_regime_a_synthetic(
-    n_days: int = 2,
-    n_racks: int = 25,
-    seed: int = 0,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Generate regime-A synthetic workload + constant wet-bulb.
-
-    Args:
-        n_days: number of synthetic days to generate
-        n_racks: 25 CDU groups
-        seed: RNG seed
-
-    Returns:
-        P_syn: (T, 25) synthetic per-CDU power
-        towb_syn: (T,) constant wet-bulb in Celsius (~15.6°C, the real day's mean)
-    """
-    try:
-        from optimal_dc.workload_gen_pipeline import generate, WorkloadConfig
-    except ImportError:
-        logger.error("workload_gen_pipeline not importable; ensure the repo root (NVAITC/) is on sys.path")
-        raise
-
-    logger.info(f"Generating {n_days} synthetic regime-A days (seed={seed})")
-
-    spec_path = Path(__file__).parents[1] / "workload_gen_pipeline/spec/regime_A.json"
-
-    # Load calibrated config; fall back to the spec-derived starting config
-    config_path = Path(__file__).parents[1] / "workload_gen_pipeline/spec/regime_A_calib.json"
-    if config_path.exists():
-        config = WorkloadConfig.from_json(config_path)
-    else:
-        logger.warning(f"regime_A_calib.json not found at {config_path}; "
-                       "falling back to regime_A_starting (uncalibrated)")
-        config = WorkloadConfig.regime_A_starting(spec_path)
-
-    # Generate N independent days
-    n_steps_per_day = 5761  # 24h at 15s resolution
-    P_list = []
-    for day_idx in range(n_days):
-        day_seed = seed + day_idx * 1000  # independent seed per day
-        P_day = generate(config, n_racks=n_racks, n_steps=n_steps_per_day, seed=day_seed)
-        P_list.append(P_day)
-
-    P_syn = np.concatenate(P_list, axis=0)  # (T*n_days, 25)
-
-    # Constant wet-bulb (typical Frontier facility, ~60°F = 15.6°C)
-    # Use the mean from the real day for consistency
-    towb_syn = np.full(P_syn.shape[0], 15.6, dtype=np.float32)
-
-    logger.info(f"Generated {P_syn.shape[0]} synthetic steps ({n_days} days)")
-    return P_syn, towb_syn
-
-
 class RegimeADaySampler:
     """Draw a fresh certified regime-A day per call -> (5761, 16) FMU trace.
 
@@ -213,96 +159,5 @@ class RegimeADaySampler:
             return exog
         raise RuntimeError(
             f"no generated day passed trace-tier checks in {self.max_tries} tries "
-            "(acceptance is ~48%; this indicates a broken config, not bad luck)")
-
-
-def load_data_variant_a(
-    csv_path: str | Path = None,
-    n_synthetic_days: int = 2,
-    train_frac: float = 0.67,
-    stacking: str = "regime_a_synthetic",
-    seed: int = 0,
-) -> dict:
-    """
-    Load variant A data: real Frontier CSV + regime-A synthetic.
-
-    Args:
-        csv_path: path to Frontier CSV (default: standard location)
-        n_synthetic_days: how many regime-A days to append
-        train_frac: fraction of data for training (rest for eval)
-        stacking: "none" | "regime_a_synthetic" (how to combine real + synthetic)
-        seed: random seed for synthetic generation
-
-    Returns:
-        {
-            'train': {
-                'power': (T_train, 16) exogenous trace,
-                'steps': T_train
-            },
-            'eval': {
-                'power': (T_eval, 16) exogenous trace,
-                'steps': T_eval
-            },
-            'meta': metadata dict
-        }
-    """
-    if csv_path is None:
-        # this file is optimal_dc/ML_algos/data_loader.py -> parents[1] is optimal_dc/
-        csv_path = Path(__file__).parents[1] / "external/sustain-lc/input_04-07-24.csv"
-
-    logger.info(f"Loading variant A data (stacking={stacking})")
-
-    # Load real Frontier data
-    P_real, towb_real, dt = load_frontier_csv(csv_path)
-
-    # Disaggregate real data
-    exog_real, meta_real = disaggregate_to_fmu(P_real, towb_real)
-
-    if stacking == "none":
-        # Use only real data
-        exog = exog_real
-        n_real_days = 1
-        n_synthetic_days_used = 0
-
-    elif stacking == "regime_a_synthetic":
-        # Append synthetic regime-A days
-        P_syn, towb_syn = generate_regime_a_synthetic(n_days=n_synthetic_days, seed=seed)
-        exog_syn, _ = disaggregate_to_fmu(P_syn, towb_syn)
-        exog = np.concatenate([exog_real, exog_syn], axis=0)
-        n_real_days = 1
-        n_synthetic_days_used = n_synthetic_days
-
-    else:
-        raise ValueError(f"Unknown stacking: {stacking}")
-
-    # Split into train/eval
-    n_total = exog.shape[0]
-    n_train = int(n_total * train_frac)
-
-    exog_train = exog[:n_train]
-    exog_eval = exog[n_train:]
-
-    logger.info(f"Split: {exog_train.shape[0]} train, {exog_eval.shape[0]} eval steps")
-
-    data = {
-        "train": {
-            "power": exog_train,
-            "steps": exog_train.shape[0],
-        },
-        "eval": {
-            "power": exog_eval,
-            "steps": exog_eval.shape[0],
-        },
-        "meta": {
-            "variant": "a_frontier_regime_a",
-            "stacking": stacking,
-            "n_real_days": n_real_days,
-            "n_synthetic_days": n_synthetic_days_used,
-            "total_days": n_real_days + n_synthetic_days_used,
-            "train_frac": train_frac,
-            "dt_s": dt,
-            **meta_real,
-        },
-    }
-
-    return data
+            "(fresh-seed acceptance is ~50% — measured 51% on seeds 2000-2099, "
+            "2026-08-30 — so 40 straight failures means a broken config, not bad luck)")

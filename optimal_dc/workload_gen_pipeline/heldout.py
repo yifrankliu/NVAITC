@@ -155,7 +155,7 @@ def run_split1(quick: bool = False, out_path: str | Path = _OUT) -> bool:
         "n_seeds_objective": N_SEEDS,
         "gate_seeds": [int(s) for s in GATE_SEEDS],
         "quick": quick,
-        "date": "2026-08-28",
+        "date": time.strftime("%Y-%m-%d"),
     }
     Path(out_path).write_text(json.dumps(data, indent=2), encoding="utf-8")
     print(f"wrote {out_path}")

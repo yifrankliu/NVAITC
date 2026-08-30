@@ -1,8 +1,8 @@
-# Quick Start: sustain-lc Baselines on Variant A
+# Quick Start: Registered Baselines on Variant A
 
-Train/evaluate the two sustain-lc RL baselines (`ma_ca_ppo`, `mh_ma_ca_ppo`)
-on the real Frontier CSV with the ÷9 v3 disaggregator. See `README.md` for
-architecture; everything below was smoke-tested 2026-08-28.
+Train/evaluate the three registered algos (`ma_ca_ppo`, `mh_ma_ca_ppo`,
+`unified_mlp`) on the real Frontier CSV with the ÷9 v3 disaggregator. See
+`README.md` for architecture; everything below was smoke-tested 2026-08-28.
 
 ## 1. Setup
 
@@ -28,18 +28,27 @@ line at step 200, then `Saved ... ma_ca_ppo_final_agent_CDUCAB.pth (+CT)`.
 
 ## 3. Full training
 
-```bash
-# MA baseline (upstream budget 3M steps, ~18 h; FMU stepping is CPU-bound)
-python -m optimal_dc.ML_algos.benchmarks train \
-  --algo ma_ca_ppo --n_steps 3_000_000 --seed 0 \
-  --output optimal_dc/ML_algos/checkpoints/variant_a_ma
+The campaign standard is `train_all.py` (3 algos x 2 reward arms x seeds as
+isolated subprocesses, 500k steps per cell by default, resume-safe):
 
-# MH baseline (upstream budget 5M steps; v3 forces subsample_rate=1 — the
-# upstream 40x compression is deliberately NOT reproduced)
-python -m optimal_dc.ML_algos.benchmarks train \
-  --algo mh_ma_ca_ppo --n_steps 5_000_000 --seed 0 \
-  --output optimal_dc/ML_algos/checkpoints/variant_a_mh
+```bash
+python -m optimal_dc.ML_algos.train_all --smoke   # 450-step validation of every cell first
+python -m optimal_dc.ML_algos.train_all
 ```
+
+Single-cell runs go through benchmarks directly:
+
+```bash
+python -m optimal_dc.ML_algos.benchmarks train \
+  --algo ma_ca_ppo --n_steps 500_000 --seed 0 \
+  --output optimal_dc/ML_algos/checkpoints/variant_a_ma
+```
+
+For reference, the upstream LC-Opt budgets were 3M (MA, ~18 h; FMU stepping is
+CPU-bound) and 5M (MH) — and upstream MH trained with subsample_rate=40; v3
+forces subsample_rate=1 (the 40x compression is deliberately NOT reproduced).
+Note the action-std decay schedule (0.05 every 250k steps) was designed for
+those budgets: a 500k run ends at sigma~0.50 of the 0.6 start.
 
 ## 4. Evaluation
 

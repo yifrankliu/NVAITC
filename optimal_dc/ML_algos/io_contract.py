@@ -117,8 +117,10 @@ def normalize_observation_dict(obs_dict: dict) -> dict:
     """
     Convert FrontierEnv's Dict observation to a flat normalized vector.
 
-    FrontierEnv already returns normalized obs in [-1, 1].
-    This unpacks the Dict and flattens it for algorithms that prefer flat input.
+    FrontierEnv applies an affine map TOWARD [-1, 1] but does NOT clip: warm-up
+    transients (~139 degC vs the 100 degC range cap) and out-of-range states
+    exceed the band. This unpacks the Dict and flattens it for algorithms that
+    prefer flat input.
 
     obs_dict: {'cdu-cabinet-1': (6,), ..., 'cooling-tower-1': (4,)}
     returns: (34,) normalized flat observation (5 cabinets x 6 + 4 CT dims)

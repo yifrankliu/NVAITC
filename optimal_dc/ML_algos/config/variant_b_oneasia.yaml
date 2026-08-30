@@ -4,8 +4,13 @@
 # Data: Frontier (real) + OneAsia (real, TBD availability)
 # Objective: show value of multi-cluster training; validate generalization
 
-# Inherit defaults
-inherit: "default.yaml"
+# ============================================================================
+# TEMPLATE — NOT RUNNABLE AS-IS. `inherit:` is NOT implemented (benchmarks.py
+# just yaml.safe_load's this file), and data_sources / stacking / hidden_sizes
+# / learning_rate / n_total_steps are consumed by NO script. Rewrite against
+# the variant_a_synth.yaml key set when OneAsia data arrives.
+# ============================================================================
+inherit: "default.yaml"  # <- no-op, see warning above
 
 # Variant-specific overrides
 variant: "b_frontier_oneasia"

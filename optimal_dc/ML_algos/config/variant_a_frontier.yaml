@@ -24,8 +24,5 @@ disaggregator_version: "v3"
 # sustain-lc hyperparameter overrides go here (see config/default.yaml for the
 # reference list); leave empty to train with the exact upstream values.
 
-# FUTURE (not yet consumed by any script): real+synthetic stacking via
-# data_loader.load_data_variant_a — the delivered synthetic days in
-# workload_gen_pipeline/synth_data/ are drop-in CSVs in the meantime.
-# n_synthetic_days: 2
-# stacking: "regime_a_synthetic"
+# For synthetic data, use variant_a_synth.yaml (RegimeADaySampler) — or point
+# csv_path at a delivered day in workload_gen_pipeline/synth_data/ (drop-in CSV).

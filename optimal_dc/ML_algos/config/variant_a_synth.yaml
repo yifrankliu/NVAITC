@@ -2,9 +2,10 @@
 #
 # The train-on-synthetic / test-on-real protocol (2026-08-28 decision): every
 # episode reset draws a FRESH certified regime-A day (generate -> trace-tier
-# rejection-sample -> /9 disaggregate) at a uniform-random start offset, so the
-# policy trains on the workload DISTRIBUTION and the real 2024-04-07 trajectory
-# stays unseen until the pre-committed evaluation.
+# rejection-sample -> /9 disaggregate), so the policy trains on the workload
+# DISTRIBUTION and the real 2024-04-07 trajectory stays unseen until the
+# pre-committed evaluation. (Since the 2026-08-30 full-day protocol below,
+# every episode starts at midnight — the start offset is forced to 0.)
 #
 # Train with:  python -m optimal_dc.ML_algos.benchmarks train --algo ma_ca_ppo \
 #                --config optimal_dc/ML_algos/config/variant_a_synth.yaml ...
@@ -26,8 +27,8 @@ use_reward_shaping: "reward_shaping_v2"
 # FACTOR x 192 steps (MA/unified 192, MH 384). 192 was chosen as the closest
 # value to upstream's 200 that divides 5760 — so every episode end is an
 # update boundary (buffers empty) and the resume snapshot fires exactly once
-# per simulated day. NOTE: a 500k-step run now covers 86 full days instead of
-# ~2500 partial ones — fuller days, fewer of them.
+# per simulated day. NOTE: a 500k-step run now covers ~86 full days (plus one
+# final partial episode) instead of ~2500 partial ones — fuller days, fewer.
 max_ep_len: 5760
 update_ep_len: 192
 

@@ -129,9 +129,10 @@ def _objective(x: np.ndarray, spec: dict, seeds: range,
                frozen: dict | None = None, fit_stats: set | None = None) -> float:
     """Ensemble feasibility + faithfulness tie-break + trace-tier gate shortfall.
 
-    The gate term (squared shortfall below the 0.8 target, weight 1.0) makes DE
-    optimize the actual ship criterion, not only the ensemble bias -- CRN keeps
-    the rate deterministic per theta so the term is a valid objective.
+    The gate term (squared shortfall below 0.9 = the 0.8 ship gate plus 0.1
+    margin, weight 1.0) makes DE optimize the actual ship criterion, not only
+    the ensemble bias -- CRN keeps the rate deterministic per theta so the term
+    is a valid objective.
     With fit_stats given, every term (ensemble Q AND the gate rate) is computed
     over the fitted checks only."""
     try:
@@ -210,7 +211,7 @@ def calibrate(quick: bool = False, out_path: str | Path = _OUT) -> WorkloadConfi
         "method": ("MSM via scipy differential_evolution (CRN, lambda pinned to mean, "
                    "two-tier acceptance: level=ensemble bias, shape/dynamics=per-trace)"),
         "ship": ship,
-        "date": "2026-08-16",
+        "date": time.strftime("%Y-%m-%d"),
         "spec": str(_SPEC.name),
         "n_seeds_objective": N_SEEDS,
         "gate_seeds": [int(s) for s in GATE_SEEDS],

@@ -134,9 +134,12 @@ def load_exogenous(source):
 
 def make_env(stop_time=None, step_size=15.0, exogen_gen_v=2, subsample_rate=1,
              exogen_trace=None):
-    # PROJECT STANDARD is v2: every sustain-lc train/eval script overrides the constructor
-    # default (=1) to exogen_gen_v=2, so prize-sizing must use v2 for ΔE to be comparable
-    # to their baselines/agents.
+    # HISTORICAL (÷15 era): v2 was the project standard for parity with the upstream
+    # sustain-lc checkpoints (every upstream train/eval script overrides the constructor
+    # default to exogen_gen_v=2). SUPERSEDED for ÷9 work (2026-08-30): the pipeline is
+    # ÷9-only — score new policies by passing exogen_trace= (a delivered ÷9
+    # _exogenous.npy); the v0/v1/v2 generator paths here all reproduce the deprecated
+    # ÷15 magnitude regime and exist only for legacy comparisons.
     # CAVEAT: v2 flattens load (softmax branch redistribution + 50-step mean filter) ->
     # conservatively UNDERSTATES the load-following prize. The smoothing kernel (=50) is
     # hardcoded in SmallFrontierModel's v2 call and not exposed via __init__; to probe the

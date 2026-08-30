@@ -104,7 +104,10 @@ def make_day(config: WorkloadConfig, seed: int, n_steps: int = 5761,
     sampling from the generator conditioned on spec satisfaction (posterior-
     predictive draws), not post-hoc cherry-picking. Nothing is written for
     rejected candidates; the sidecar records seeds_tried (~2 expected at the
-    current ~48% acceptance rate -- an honest, reported model property).
+    ~50% fresh-seed acceptance rate — measured 51% on seeds 2000-2099,
+    2026-08-30; an honest, reported model property. Beware: pass rates
+    measured on the CRN calibration seeds 0-31 read high, ~79%, because the
+    DE gate term optimized those exact seeds).
     mean_band_MW: additionally require the realized daily mean (MW) in band.
     """
     spec = load_spec(spec_path) if require_pass else None

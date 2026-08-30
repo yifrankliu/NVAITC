@@ -96,7 +96,8 @@ def _is_dst(d: _date) -> bool:
 
 def load_hourly(year: int) -> tuple[np.ndarray, np.ndarray]:
     """-> (t_lst_s, wb_C): observation times (seconds since Jan 1 00:00 LST)
-    and wet-bulb degC, sorted, FM-15/16 only, suspect flags stripped."""
+    and wet-bulb degC, sorted, FM-15/16 only. Suspect-flagged values are KEPT
+    (the trailing 's' flag is stripped, the value retained)."""
     t, wb = [], []
     with open(_fetch(year), newline="") as f:
         for r in csv.DictReader(f):
