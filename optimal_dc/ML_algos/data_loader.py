@@ -114,19 +114,42 @@ class RegimeADaySampler:
       "noaa:YYYY-MM-DD"   -- one KTYS day via workload_gen_pipeline.weather
       ["noaa:...", ...]   -- a pool; one entry drawn uniformly per day
 
+    mean_band_MW: optionally also require the realized daily-mean total power
+    (MW) inside [lo, hi] -- the SAME conditioning deliver.py --mean-band applies
+    to delivered eval traces, so training and eval days come from one
+    conditional distribution ("band both", 2026-08-30). Without it, accepted
+    days scatter ~17 +/- 2 MW and ~57% fall outside the eval band.
+
     Reproducibility: generation seeds advance sequentially from `seed`; every
     accepted (seed, wetbulb) pair is appended to `self.day_log`.
+
+    Seed partition (2026-08-30): training seeds MUST come from
+    TRAIN_SEED_RANGE = [2000, 1e6) — disjoint from calibration CRN (0-31),
+    gate (1000-1039), and eval-delivery (>= 1e6) seeds — so a delivered
+    held-out test day is provably never a training day.
     """
 
-    def __init__(self, seed: int = 0, wetbulb="replay", require_pass: bool = True,
-                 max_tries: int = 40, config_path=None, spec_path=None):
-        from optimal_dc.workload_gen_pipeline import WorkloadConfig, load_spec
+    def __init__(self, seed: int = 2000, wetbulb="replay", require_pass: bool = True,
+                 max_tries: int = 100, config_path=None, spec_path=None,
+                 mean_band_MW=None):
+        from optimal_dc.workload_gen_pipeline import (WorkloadConfig, load_spec,
+                                                      TRAIN_SEED_RANGE)
+
+        lo, hi = TRAIN_SEED_RANGE
+        if not (lo <= seed < hi):
+            raise ValueError(
+                f"training sampler seed {seed} is outside the reserved training "
+                f"range [{lo}, {hi}): 0-31 are calibration CRN seeds (in-sample, "
+                f"overfitted), 1000-1039 gate seeds, >= {hi} eval-delivery seeds "
+                f"(held-out test days). Use a seed in [{lo}, {hi}).")
+        self._seed_hi = hi
 
         pipeline = Path(__file__).parents[1] / "workload_gen_pipeline"
         self.config = WorkloadConfig.from_json(config_path or pipeline / "spec" / "regime_A_calib.json")
         self.spec = load_spec(spec_path or pipeline / "spec" / "regime_A.json")
         self.require_pass = require_pass
         self.max_tries = max_tries
+        self.mean_band_MW = tuple(mean_band_MW) if mean_band_MW is not None else None
         self._next_seed = seed
         self._rng = np.random.default_rng(seed)
         self.day_log: list = []
@@ -150,7 +173,16 @@ class RegimeADaySampler:
         for _ in range(self.max_tries):
             seed = self._next_seed
             self._next_seed += 1
+            if seed >= self._seed_hi:
+                raise RuntimeError(
+                    f"training seed stream reached {seed}, the eval-delivery "
+                    f"boundary (>= {self._seed_hi} is reserved for held-out test "
+                    "days) — should be unreachable in any realistic run")
             P = generate(self.config, seed=seed)
+            if self.mean_band_MW is not None:
+                m = P.sum(axis=1).mean() / 1e6   # cheap check first, mirrors deliver.py
+                if not (self.mean_band_MW[0] <= m <= self.mean_band_MW[1]):
+                    continue
             if self.require_pass and not validate(P, self.spec).passed_trace:
                 continue
             src, towb = self._towb_pool[self._rng.integers(len(self._towb_pool))]
@@ -158,6 +190,8 @@ class RegimeADaySampler:
             self.day_log.append((seed, src))
             return exog
         raise RuntimeError(
-            f"no generated day passed trace-tier checks in {self.max_tries} tries "
-            "(fresh-seed acceptance is ~50% — measured 51% on seeds 2000-2099, "
-            "2026-08-30 — so 40 straight failures means a broken config, not bad luck)")
+            f"no generated day met the acceptance conditions in {self.max_tries} tries "
+            f"(mean_band_MW={self.mean_band_MW}, require_pass={self.require_pass}; "
+            "fresh-seed acceptance measured 2026-08-30 on seeds 2000-2099: ~51% "
+            "trace-tier alone, ~20-25% with the band — this many straight failures "
+            "means a broken config, not bad luck)")

@@ -58,10 +58,12 @@ def build_env_and_agent(algo: str, config: dict, csv_path, disaggregator_version
     """Instantiate the algo's env variant + agent from one registry entry.
 
     Train-on-synthetic: a `synthetic_day_sampler` dict in the config (kwargs
-    for RegimeADaySampler, e.g. {seed: 0, wetbulb: "replay", require_pass:
-    true}) attaches a per-reset day sampler -- every episode then starts on a
-    freshly generated certified regime-A day at a random offset, so the policy
-    trains on the workload DISTRIBUTION. Without it, behavior is unchanged
+    for RegimeADaySampler, e.g. {seed: 2000, wetbulb: "replay", require_pass:
+    true, mean_band_MW: [15.0, 17.3]}) attaches a per-reset day sampler --
+    every episode then starts on a freshly generated certified regime-A day
+    (seed must sit in the reserved training range [2000, 1e6); under the
+    full-day protocol the start offset is forced to 0), so the policy trains
+    on the workload DISTRIBUTION. Without it, behavior is unchanged
     (static csv_path trace)."""
     if algo not in ALGOS:
         raise ValueError(f"unknown algo {algo!r}; choose from {sorted(ALGOS)}")

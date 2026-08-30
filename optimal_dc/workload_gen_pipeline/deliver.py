@@ -26,9 +26,14 @@ Disaggregation convention: /9 (/3 cabinets per CDU group x /3 branches), the
 single physically-derived magnitude -- see disaggregator.py. The old /15
 sustain-lc lineage is gone; anything produced under it is not comparable.
 
+Seed partition (2026-08-30): delivered (eval) days draw from seeds
+>= 1_000_000 -- disjoint from training seeds [2000, 1e6) and calibration seeds
+(0-31 CRN, 1000-1039 gate) -- so a delivered day is provably never a training
+day. --legacy-seed exists only to reproduce pre-partition artifacts.
+
 Usage:
-    python -m workload_gen_pipeline.deliver --seed 0
-    python -m workload_gen_pipeline.deliver --seed 0 --mean-band 15.0,17.3 --out synth_data
+    python -m workload_gen_pipeline.deliver
+    python -m workload_gen_pipeline.deliver --seed 1000042 --mean-band 15.0,17.3 --out synth_data
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import EVAL_DELIVERY_SEED_MIN
 from .config import WorkloadConfig
 from .generator import generate, job_metrics
 from .validate import validate, load_spec
@@ -193,7 +199,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Generate + deliver a synthetic Frontier day")
     ap.add_argument("--config", default=str(_CALIB), help="WorkloadConfig JSON")
     ap.add_argument("--spec", default=str(_SPEC))
-    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=EVAL_DELIVERY_SEED_MIN,
+                    help=f"start seed for rejection sampling (eval range, >= {EVAL_DELIVERY_SEED_MIN})")
+    ap.add_argument("--legacy-seed", action="store_true",
+                    help="allow --seed below the reserved eval range (ONLY for "
+                         "reproducing pre-partition artifacts, e.g. certified_demo seed 508)")
     ap.add_argument("--n-steps", type=int, default=5761)
     ap.add_argument("--out", default=str(_OUT))
     ap.add_argument("--name", default=None)
@@ -207,6 +217,14 @@ def main(argv=None):
                     help="'replay' (real 2024-04-07 facility column, default) or "
                          "'noaa:YYYY-MM-DD' (KTYS-sourced weather for that day)")
     args = ap.parse_args(argv)
+
+    if args.seed < EVAL_DELIVERY_SEED_MIN and not args.legacy_seed:
+        ap.error(
+            f"--seed {args.seed} is below the eval-delivery range "
+            f"(>= {EVAL_DELIVERY_SEED_MIN}). Seeds < 1e6 are reserved: 0-31 "
+            "calibration CRN, 1000-1039 gate, 2000+ training — a delivery there "
+            "could be bit-identical to a training day. Pass --legacy-seed only "
+            "to reproduce a pre-partition artifact.")
 
     cfg = WorkloadConfig.from_json(args.config)
     band = tuple(float(x) for x in args.mean_band.split(",")) if args.mean_band else None

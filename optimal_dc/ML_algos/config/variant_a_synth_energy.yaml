@@ -20,6 +20,14 @@ description: "Synthetic regime-A days, facility_energy reward (true objective); 
 seed: 0
 use_reward_shaping: "facility_energy"
 
+# Best-effort arm: gamma raised from the upstream 0.80 (2026-08-30 decision).
+# 0.80 gives a 1/(1-gamma) = 5-step (75 s) credit horizon — pre-cooling ahead
+# of load/weather (the mechanism this energy objective exists to reward) is
+# invisible at that horizon. 0.99 -> ~100-step (25 min) horizon, matching the
+# plant's thermal-inertia timescale. The NATIVE arm (variant_a_synth.yaml)
+# deliberately keeps upstream 0.80 — that arm is "baselines as published".
+gamma: 0.99
+
 # Full-day episodes + decoupled PPO cadence — same protocol as
 # variant_a_synth.yaml (see the block there for the full rationale).
 # The facility_energy warmup mask (first 30 post-reset steps) now applies
@@ -31,9 +39,16 @@ csv_path: "optimal_dc/external/sustain-lc/input_04-07-24.csv"
 disaggregator_version: "v3"
 
 synthetic_day_sampler:
-  seed: 0
+  # 2000 = start of the reserved TRAINING seed range [2000, 1e6). Seeds 0-31
+  # are calibration CRN (in-sample), 1000-1039 gate, >= 1e6 eval delivery —
+  # see workload_gen_pipeline/__init__.py (seed partition, 2026-08-30).
+  seed: 2000
   wetbulb: "replay"
   require_pass: true
+  # Same daily-mean band as the delivered eval traces (deliver.py --mean-band):
+  # train and eval days now come from the SAME conditional distribution
+  # ("band both" decision, 2026-08-30).
+  mean_band_MW: [15.0, 17.3]
 
 # facility_energy constants -- defaults are the /9-regime values measured
 # 2026-08-28 (see frontier_env_v3.py); listed here for visibility, override

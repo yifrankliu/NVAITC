@@ -31,6 +31,22 @@ from .validate import validate, validate_ensemble, pass_rate, compute_stats, loa
 from .freeze import freeze
 from .disaggregator import disaggregate
 
+# --- Seed-space partition (2026-08-30) ---------------------------------------
+# One generator + one calibration serve calibration, training, AND evaluation;
+# an identical (config, seed) pair produces a bit-identical day, so
+# "held-out" is enforced at the SEED level. Reserved ranges:
+#   0-31          calibration CRN seeds (DE audited these every iteration ->
+#                 in-sample; pass rates measured on them read high) [calibrate.py]
+#   1000-1039     shipping-gate seeds (fresh-seed pass rate)        [calibrate.py]
+#   2000-999_999  TRAINING (RegimeADaySampler)             [ML_algos/data_loader.py]
+#   >= 1_000_000  EVAL DELIVERY (held-out test days)                [deliver.py]
+# Legacy deliveries at seeds < 2000 (e.g. certified_demo, seed 508) remain
+# disjoint from training automatically. Note: held-out synthetic days test
+# REALIZATION generalization only (same generator/calibration); the real day
+# is the sole distribution-level test.
+TRAIN_SEED_RANGE = (2000, 1_000_000)   # [lo, hi)
+EVAL_DELIVERY_SEED_MIN = 1_000_000
+
 __all__ = [
     "WorkloadConfig",
     "DistSpec",
@@ -43,6 +59,8 @@ __all__ = [
     "load_spec",
     "freeze",
     "disaggregate",
+    "TRAIN_SEED_RANGE",
+    "EVAL_DELIVERY_SEED_MIN",
 ]
 
 # calibrate.py (scipy) and envelope.py (pandas/openpyxl) are import-on-demand:
