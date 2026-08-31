@@ -1,19 +1,10 @@
 # NVAITC
-Optimizing coupled cooling systems for large-scale data centers and supercomputers. Going beyond basic reactive controllers and attempting to implement proactive cooling with added predictive consideration to exogenous weather/environmental variables & workload scheduling. Thermal model built on the framework laid by Oakridge National Laboratory's ExaDigit democratized Frontier Supercomputer digital twin project & sustain-lc.
+Optimizing coupled cooling systems for large-scale data centers and supercomputers. Going beyond basic reactive controllers and implementing proactive cooling with added predictive consideration to exogenous weather/environmental variables & workload scheduling. Thermal model built on the framework laid by Oakridge National Laboratory's ExaDigit democratized Frontier Supercomputer digital twin project & sustain-lc.
 
-## Current ML Formulation
-**rough ideas
-1. GAT/GINE on the blade-group nodes, which can then be made more granular to chip-wise when a more detailed, customized thermal model can be compiled via exadigit.
-2. DeepONet on fluid dynamics/fluid thermal dynamics once we traverse out of the cabinet racks' spatial domain.
-3. Rolling-time-horizon implementation for predictive capabilities. e.g. predict the next k=12 timesteps but only implement/use info from the immediate next time step.
 
 ## Contents
-### 1. cooling_model_workspace
-Contains my attempts at constructing a customized super-computer/data center setup using ORNL's exadigit groundwork. However, to successfully compile my own FMU, I would either need a Dymola license (either via institution/paid, both of which I do not have immediate access to), or fix an OpenModelica compiler bug documented in [ticket #13067](https://github.com/OpenModelica/OpenModelica/issues/13067#issuecomment-4477086215).
-
-Currently, moved on to building my initial ML architecture first & testing on the already-compiled sustain-lc FMU.
-
-Will ultimately need to compile a more granular thermal digital model after ML architecture has been built to a certain extent to realize version. Sustain-lc simplifies blade-groups into point-wise temperatures (no gradient), would be best to get temperature gradient on a chip-wise granular model.
+### 1. optimal_dc
+All of current progress. workload_gen is the synthetical workload data generator pipeline, ingested into the inherited FMU after some modifications, use to train baseline and own ML algorithms in ML_algos, evaluated in evaluation.
 
 ### 2. data
 Contains helpful data files for training & testing, some are not in there yet.
